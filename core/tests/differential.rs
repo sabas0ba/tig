@@ -97,6 +97,13 @@ fn fixture(name: &str) -> (PathBuf, Vec<u8>) {
     // annotated tag (tag object の parse 対象)。
     git_at(&dir, &["tag", "-a", "-m", "release", "v1"], time);
 
+    // committer date が全 ancestor より古い commit (clock skew)。単純な date 順は
+    // `--date-order` の topology 制約 (parent は子より後) とここで乖離するため、
+    // walk の比較テストがこのケースを含むようにする。
+    std::fs::write(dir.join("d.txt"), "skew\n").unwrap();
+    git_at(&dir, &["add", "d.txt"], T0 - 500);
+    git_at(&dir, &["commit", "-q", "-m", "skewed commit"], T0 - 500);
+
     git(&dir, &["bundle", "create", "out.bundle", "--all"]);
     let bundle = std::fs::read(dir.join("out.bundle")).unwrap();
     (dir, bundle)
