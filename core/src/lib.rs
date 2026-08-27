@@ -6,8 +6,10 @@
 //! feature 構成:
 //! - (常時): oid、SHA-1、zlib inflate、loose object の parse
 //! - `pack`: packfile v2 の解析と delta 解決
-//! - `bundle`: bundle v2/v3 の読み込み (`pack` を内包)
+//! - `bundle`: bundle v2/v3 の読み書き (`pack` を内包)
 //! - `history`: committer date 順の history walk
+//! - `transport-http`: protocol v2 の request 構築と response 解析 (sans-io)
+//! - `fetch`: smart HTTP からの clone 状態機械 (`transport-http` + `bundle`)
 
 #![cfg_attr(not(test), no_std)]
 
@@ -29,6 +31,14 @@ pub mod bundle;
 
 #[cfg(feature = "history")]
 pub mod history;
+
+#[cfg(feature = "transport-http")]
+pub mod pkt;
+#[cfg(feature = "transport-http")]
+pub mod protov2;
+
+#[cfg(feature = "fetch")]
+pub mod clone;
 
 use alloc::vec::Vec;
 

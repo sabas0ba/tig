@@ -85,3 +85,83 @@ fn split_line(data: &[u8]) -> Result<(&[u8], &[u8])> {
         .ok_or(Error::Corrupt("bundle header line"))?;
     Ok((&data[..nl], &data[nl + 1..]))
 }
+
+/// refs と packfile から bundle v2 を構成する。
+///
+/// `shallow` は fetch が報告した履歴の打ち切り点。その commit の parent のうち
+/// pack に含まれないものを prerequisite として記録する (bundle に無い前提
+/// commit を明示し、本ライブラリの walk と git の双方が境界を判定できるように
+/// する)。
+pub fn write(refs: &[(&[u8], Oid)], shallow: &[Oid], pack_data: &[u8]) -> Result<Vec<u8>> {
+    use crate::object::{self, Kind};
+
+    let mut prerequisites: Vec<Oid> = Vec::new();
+    if !shallow.is_empty() {
+        let pack = Pack::parse(pack_data)?;
+        for oid in shallow {
+            let Some((Kind::Commit, body)) = pack.read_object(oid)? else {
+                return Err(Error::Corrupt("shallow oid not in pack"));
+            };
+            for parent in object::parse_commit(&body)?.parents {
+                if !pack.contains(&parent) && !prerequisites.contains(&parent) {
+                    prerequisites.push(parent);
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(pack_data.len() + 64 * (refs.len() + 2));
+    out.extend_from_slice(b"# v2 git bundle\n");
+    for oid in &prerequisites {
+        out.push(b'-');
+        push_hex(&mut out, oid);
+        out.push(b'\n');
+    }
+    for (name, oid) in refs {
+        push_hex(&mut out, oid);
+        out.push(b' ');
+        out.extend_from_slice(name);
+        out.push(b'\n');
+    }
+    out.push(b'\n');
+    out.extend_from_slice(pack_data);
+    Ok(out)
+}
+
+fn push_hex(out: &mut Vec<u8>, oid: &Oid) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for &b in oid.as_bytes() {
+        out.push(HEX[usize::from(b >> 4)]);
+        out.push(HEX[usize::from(b & 0xf)]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sha1;
+    use alloc::vec;
+
+    /// entry 0 件の pack (正しい trailer 付き)。
+    fn empty_pack() -> Vec<u8> {
+        let mut c = Vec::new();
+        c.extend_from_slice(b"PACK");
+        c.extend_from_slice(&2u32.to_be_bytes());
+        c.extend_from_slice(&0u32.to_be_bytes());
+        let digest = sha1::digest(&c);
+        c.extend_from_slice(&digest);
+        c
+    }
+
+    #[test]
+    fn write_parse_roundtrip() {
+        let oid = Oid::from_bytes([0x42; 20]);
+        let pack = empty_pack();
+        let data = write(&[(b"refs/heads/main", oid)], &[], &pack).unwrap();
+
+        let bundle = Bundle::parse(&data).unwrap();
+        assert_eq!(bundle.refs, vec![(&b"refs/heads/main"[..], oid)]);
+        assert!(bundle.prerequisites.is_empty());
+        assert!(bundle.pack.is_empty());
+    }
+}
