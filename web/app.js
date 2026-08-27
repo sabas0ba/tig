@@ -92,14 +92,14 @@ function setStatus(text, isError = false) {
 }
 
 function openBundle(bytes, label) {
-  if (bundleHandle >= 0) {
-    wasm.tig_bundle_close(bundleHandle);
-    bundleHandle = -1;
-  }
   const handle = withBytes(bytes, (p, n) => wasm.tig_bundle_open(p, n));
   if (handle < 0) {
+    // 解析に失敗した場合は直前の bundle (handle / 表示 / download) を保持する。
     setStatus(`parse failed: ${lastError()}`, true);
     return;
+  }
+  if (bundleHandle >= 0) {
+    wasm.tig_bundle_close(bundleHandle);
   }
   bundleHandle = handle;
   bundleBytes = bytes;
