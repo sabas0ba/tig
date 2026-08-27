@@ -1,0 +1,19 @@
+[package]
+name = "tig-core"
+description = "no_std git client core: object / pack / bundle parsing and history walk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# packfile v2 の解析と delta 解決
+pack = []
+# bundle (v2/v3) の読み込み。pack を内包する
+bundle = ["pack"]
+# committer date 順の history walk
+history = []
+
+[lib]
+name = "tig_core"

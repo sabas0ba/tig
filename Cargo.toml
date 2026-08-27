@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["core", "cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/sabas0ba/tig"
+
+# 組み込みでの利用を想定し、release はサイズ最適化を既定とする。
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
