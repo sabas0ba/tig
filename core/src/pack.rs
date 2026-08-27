@@ -65,7 +65,7 @@ impl<'a> Pack<'a> {
                 return Err(Error::UnexpectedEof);
             }
             let (code, size, pos) = entry_header(data, offset, content_end)?;
-            let (_, zlib_start) = base_ref(data, code, pos, offset)?;
+            let (_, zlib_start) = base_ref(data, code, pos, offset, content_end)?;
             let inflated = zlib::inflate_zlib(&data[zlib_start..content_end], Some(size))?;
             if inflated.data.len() != size {
                 return Err(Error::Corrupt("entry size"));
@@ -206,17 +206,33 @@ fn entry_header(data: &[u8], offset: usize, end: usize) -> Result<(u8, usize, us
 }
 
 /// type/size varint の直後にある base 参照を読む。返り値は (base, zlib stream の開始位置)。
-fn base_ref(data: &[u8], code: u8, pos: usize, entry_offset: usize) -> Result<(BaseRef, usize)> {
+///
+/// 読み取りは `end` (trailer の手前) で打ち切る。trailer は checksum であって
+/// entry の一部ではなく、境界検査を怠ると checksum 込みで細工した pack が
+/// `zlib_start > end` の slice を作り panic に至る。
+fn base_ref(
+    data: &[u8],
+    code: u8,
+    pos: usize,
+    entry_offset: usize,
+    end: usize,
+) -> Result<(BaseRef, usize)> {
     match code {
         OBJ_COMMIT | OBJ_TREE | OBJ_BLOB | OBJ_TAG => Ok((BaseRef::None, pos)),
         OBJ_OFS_DELTA => {
             // 負 offset の varint (MSB first、継続時に +1 する git 独自形式)。
             let mut p = pos;
-            let mut byte = *data.get(p).ok_or(Error::UnexpectedEof)?;
+            let mut byte = *data
+                .get(p)
+                .filter(|_| p < end)
+                .ok_or(Error::UnexpectedEof)?;
             p += 1;
             let mut value = u64::from(byte & 0x7f);
             while byte & 0x80 != 0 {
-                byte = *data.get(p).ok_or(Error::UnexpectedEof)?;
+                byte = *data
+                    .get(p)
+                    .filter(|_| p < end)
+                    .ok_or(Error::UnexpectedEof)?;
                 p += 1;
                 value = value
                     .checked_add(1)
@@ -231,7 +247,10 @@ fn base_ref(data: &[u8], code: u8, pos: usize, entry_offset: usize) -> Result<(B
             Ok((BaseRef::Offset(base as usize), p))
         }
         OBJ_REF_DELTA => {
-            let bytes = data.get(pos..pos + 20).ok_or(Error::UnexpectedEof)?;
+            if pos + 20 > end {
+                return Err(Error::UnexpectedEof);
+            }
+            let bytes = &data[pos..pos + 20];
             Ok((
                 BaseRef::Oid(Oid::from_bytes(bytes.try_into().unwrap())),
                 pos + 20,
@@ -260,7 +279,7 @@ fn materialize(
             return Err(Error::Corrupt("delta chain too deep"));
         }
         let (code, size, pos) = entry_header(data, cur, content_end)?;
-        let (base, zlib_start) = base_ref(data, code, pos, cur)?;
+        let (base, zlib_start) = base_ref(data, code, pos, cur, content_end)?;
         match base {
             BaseRef::None => {
                 let inflated = zlib::inflate_zlib(&data[zlib_start..content_end], Some(size))?;
@@ -288,4 +307,52 @@ fn materialize(
         body = delta::apply(&body, &inflated.data)?;
     }
     Ok((kind, body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// content に正しい SHA-1 trailer を付けて pack として成立させる。
+    /// checksum は転送誤り検出であって悪意への防御ではないため、細工された
+    /// pack も checksum は正しくなり得る。
+    fn with_trailer(mut content: Vec<u8>) -> Vec<u8> {
+        let digest = sha1::digest(&content);
+        content.extend_from_slice(&digest);
+        content
+    }
+
+    fn header(count: u32) -> Vec<u8> {
+        let mut c = Vec::new();
+        c.extend_from_slice(b"PACK");
+        c.extend_from_slice(&2u32.to_be_bytes());
+        c.extend_from_slice(&count.to_be_bytes());
+        c
+    }
+
+    // ref delta の 20 byte base oid が trailer に食い込む pack を拒否すること
+    // (panic ではなくエラーで返す)。
+    #[test]
+    fn ref_delta_base_into_trailer_rejected() {
+        let mut c = header(1);
+        c.push(0x70); // type=ref_delta, size=0
+        c.extend_from_slice(&[0xaa; 5]); // base oid の途中で entry 領域が尽きる
+        assert!(Pack::parse(&with_trailer(c)).is_err());
+    }
+
+    // ofs delta の負 offset varint が trailer に食い込む pack を拒否すること。
+    #[test]
+    fn ofs_delta_varint_into_trailer_rejected() {
+        let mut c = header(1);
+        c.push(0x60); // type=ofs_delta, size=0
+        c.extend_from_slice(&[0x80; 3]); // 継続 bit が立ったまま entry 領域が尽きる
+        assert!(Pack::parse(&with_trailer(c)).is_err());
+    }
+
+    // 空 (entry 0 件) の pack は正常に解析できること。
+    #[test]
+    fn empty_pack() {
+        let pack = with_trailer(header(0));
+        assert!(Pack::parse(&pack).unwrap().is_empty());
+    }
 }
