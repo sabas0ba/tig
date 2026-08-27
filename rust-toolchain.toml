@@ -3,4 +3,9 @@
 [toolchain]
 channel = "1.97.1"
 components = ["rustfmt", "clippy"]
-targets = ["wasm32-unknown-unknown", "thumbv7em-none-eabi"]
+targets = [
+    "wasm32-unknown-unknown",
+    "thumbv7em-none-eabi",
+    "riscv32imac-unknown-none-elf",
+    "riscv64gc-unknown-none-elf",
+]

@@ -60,7 +60,14 @@ wasm: ## core を wasm32-unknown-unknown 向けにビルドする (release)
 thumb: ## core を thumbv7em-none-eabi 向けにビルドする (release)
 	cargo build -p tig-core --all-features --target thumbv7em-none-eabi --release
 
+.PHONY: riscv
+riscv: ## core を riscv32imac / riscv64gc (bare metal) 向けにビルドする (release)
+	cargo build -p tig-core --all-features --target riscv32imac-unknown-none-elf --release
+	cargo build -p tig-core --all-features --target riscv64gc-unknown-none-elf --release
+
 .PHONY: size
-size: wasm thumb ## クロスビルドの成果物サイズを表示する
+size: wasm thumb riscv ## クロスビルドの成果物サイズを表示する
 	@ls -l target/wasm32-unknown-unknown/release/*.rlib \
-		target/thumbv7em-none-eabi/release/*.rlib 2>/dev/null | awk '{print $$5, $$9}'
+		target/thumbv7em-none-eabi/release/*.rlib \
+		target/riscv32imac-unknown-none-elf/release/*.rlib \
+		target/riscv64gc-unknown-none-elf/release/*.rlib 2>/dev/null | awk '{print $$5, $$9}'

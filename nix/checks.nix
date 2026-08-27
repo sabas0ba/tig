@@ -71,4 +71,15 @@ in
     ${cargoEnv}
     cargo build --offline --locked -p tig-core --all-features --target thumbv7em-none-eabi
   '';
+
+  # core crate (no_std) が RISC-V (組み込み 32 bit / 64 bit) 向けにビルドできること。
+  build-riscv32 = mkCheck "build-riscv32" [ toolchain ] ''
+    ${cargoEnv}
+    cargo build --offline --locked -p tig-core --all-features --target riscv32imac-unknown-none-elf
+  '';
+
+  build-riscv64 = mkCheck "build-riscv64" [ toolchain ] ''
+    ${cargoEnv}
+    cargo build --offline --locked -p tig-core --all-features --target riscv64gc-unknown-none-elf
+  '';
 }

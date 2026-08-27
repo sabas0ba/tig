@@ -39,3 +39,9 @@ jobs:
 
       - name: build thumbv7em
         run: cargo build --locked -p tig-core --all-features --target thumbv7em-none-eabi --release
+
+      - name: build riscv32
+        run: cargo build --locked -p tig-core --all-features --target riscv32imac-unknown-none-elf --release
+
+      - name: build riscv64
+        run: cargo build --locked -p tig-core --all-features --target riscv64gc-unknown-none-elf --release

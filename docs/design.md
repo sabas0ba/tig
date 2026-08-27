@@ -42,7 +42,7 @@ mcu (例)  ─┘      ├─ 常時: oid / sha1 / zlib inflate / object parse
    - refs と `git bundle list-heads`
    - walk の出力列と `git rev-list --date-order`
    - 全到達 object の内容と `git cat-file` (inflate / delta / SHA-1 の実データ検証を兼ねる)
-3. クロスビルド検証: wasm32-unknown-unknown / thumbv7em-none-eabi で core をビルドし、no_std 逸脱を CI で検出する
+3. クロスビルド検証: wasm32-unknown-unknown / thumbv7em-none-eabi / riscv32imac-unknown-none-elf / riscv64gc-unknown-none-elf で core をビルドし、no_std 逸脱と word size 依存を CI で検出する
 
 git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に含むため、差分テストが網羅的なテストベクタとして機能する。
 

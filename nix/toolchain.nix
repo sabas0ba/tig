@@ -16,4 +16,6 @@ fenix.combine [
   # クロスビルド対象の rust-std。core crate (no_std) のビルド検証に使用する。
   fenix.targets.wasm32-unknown-unknown.stable.rust-std
   fenix.targets.thumbv7em-none-eabi.stable.rust-std
+  fenix.targets.riscv32imac-unknown-none-elf.stable.rust-std
+  fenix.targets.riscv64gc-unknown-none-elf.stable.rust-std
 ]

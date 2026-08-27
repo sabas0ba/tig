@@ -41,7 +41,7 @@ Nix + direnv を基本とするが、rustup でも同一の toolchain (rust-tool
 $ direnv allow        # または make shell
 $ make test           # 単体テスト + git との差分テスト
 $ make check          # nix flake check (fmt / lint / test / クロスビルド)
-$ make wasm thumb     # クロスビルド
+$ make wasm thumb riscv  # クロスビルド
 ```
 
 検証は「実物の git との差分テスト」を主軸とする。git でフィクスチャの repository と bundle を生成し、refs・履歴の順序・object の内容を本実装の解析結果と突き合わせる (core/tests/differential.rs)。
