@@ -109,7 +109,20 @@ impl Push {
                 }
             }
             State::Send { side_band_64k } => {
-                self.report = Some(protov0::parse_report_status(body, *side_band_64k)?);
+                let report = protov0::parse_report_status(body, *side_band_64k)?;
+                // 途中で切れた response を成功と誤認しないよう、送った全 command に
+                // ちょうど 1 つの結果があることを要求する。
+                for command in &self.commands {
+                    let n = report
+                        .results
+                        .iter()
+                        .filter(|(name, _)| *name == command.name)
+                        .count();
+                    if n != 1 {
+                        return Err(Error::Corrupt("report-status missing ref result"));
+                    }
+                }
+                self.report = Some(report);
                 self.state = State::Done;
             }
             State::Done => return Err(Error::Corrupt("response after completion")),
@@ -210,6 +223,31 @@ mod tests {
             .unwrap();
         assert!(push.is_done());
         assert!(push.finish().unwrap().up_to_date);
+    }
+
+    // unpack ok の直後で切れた response (ref の結果なし) を成功と誤認しない。
+    #[test]
+    fn truncated_report_rejected() {
+        let mut push = Push::new(
+            alloc::vec![(b"refs/heads/main".to_vec(), oid(0x11))],
+            b"PACK".to_vec(),
+        );
+        push.next_request();
+        push.on_response(&advertisement(&[])).unwrap();
+
+        let mut inner = Vec::new();
+        pkt::write_line(&mut inner, b"unpack ok");
+        pkt::write_flush(&mut inner);
+        let mut body = Vec::new();
+        let mut payload = alloc::vec![1u8];
+        payload.extend_from_slice(&inner);
+        pkt::write_data(&mut body, &payload);
+        pkt::write_flush(&mut body);
+
+        assert_eq!(
+            push.on_response(&body).unwrap_err(),
+            Error::Corrupt("report-status missing ref result")
+        );
     }
 
     #[test]

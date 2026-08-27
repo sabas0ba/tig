@@ -43,6 +43,15 @@ pub fn walk<O: Odb>(odb: &O, tree: Oid, visit: &mut Visit<'_>) -> Result<()> {
             continue;
         };
         let entry = entry?;
+        // 細工された tree による path traversal を拒否する。'\0' は tree の
+        // 区切り文字のため name には現れない。
+        if entry.name.is_empty()
+            || entry.name == b"."
+            || entry.name == b".."
+            || entry.name.contains(&b'/')
+        {
+            return Err(Error::Corrupt("tree entry name"));
+        }
         // entry の占有長: mode + SP + name + NUL + oid(20)。
         let consumed = entry.mode.len() + 1 + entry.name.len() + 1 + 20;
 
@@ -151,6 +160,21 @@ mod tests {
                 (b"dir/run.sh".to_vec(), EntryKind::Executable, b"B".to_vec()),
             ]
         );
+    }
+
+    // 細工された tree の traversal 系の name を拒否する。
+    #[test]
+    fn malicious_names_rejected() {
+        for name in [&b".."[..], b".", b"", b"a/b"] {
+            let mut odb = MemOdb(vec![]);
+            let blob = odb.put(Kind::Blob, b"x".to_vec());
+            let root = odb.put(Kind::Tree, tree_body(&[(b"100644", name, blob)]));
+            assert_eq!(
+                walk(&odb, root, &mut |_, _, _| Ok(())).unwrap_err(),
+                Error::Corrupt("tree entry name"),
+                "name={name:?}"
+            );
+        }
     }
 
     #[test]
