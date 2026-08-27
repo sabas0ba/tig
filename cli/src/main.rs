@@ -100,6 +100,13 @@ fn clone(args: &[String]) -> Result<(), String> {
             format!("shallow, {} boundary commits", outcome.shallow.len())
         }
     );
+    if !outcome.shallow.is_empty() {
+        // prerequisite 付きの bundle は git では前提 commit を持つ repository で
+        // しか使えない (bundle 形式に shallow の表現が無いため)。
+        println!(
+            "note: shallow bundle is readable by tig; git can use it only where the prerequisite commits already exist"
+        );
+    }
     Ok(())
 }
 

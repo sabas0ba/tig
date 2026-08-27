@@ -63,7 +63,7 @@ git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に�
 - walk の順序は `git log --date-order` と同一 (topology 制約 + committer date 順。date 同点の順序のみ oid で決定的にしており git の投入順とは異なりうる)。default の `git log` (generation number を使う topo 順) は対象外
 - 存在しない parent (bundle の prerequisite / shallow) は履歴の境界として扱う
 - protocol v2 のみ対応 (v0/v1 の server は明示的にエラー)。fetch は negotiation なしの clone 相当 (常に done) で、深さは `deepen` のみ
-- shallow clone の bundle 表現: bundle 形式には shallow graft が無いため、「pack に含まれない親を prerequisite に記録する」までを行う。複数の tip を depth 付きで clone した場合、tip 同士が pack 内で親子だと walk はそこを辿る (git の shallow clone は graft で打ち切る点が異なる)
+- shallow clone の bundle 表現: bundle 形式には shallow graft が無いため、「pack に含まれない親を prerequisite に記録する」までを行う。複数の tip を depth 付きで clone した場合、tip 同士が pack 内で親子だと walk はそこを辿る (git の shallow clone は graft で打ち切る点が異なる)。また prerequisite 付き bundle は形式の定義上 incremental bundle であり、git はその commit を持つ repository でしか verify / clone できない。tig 自身の閲覧には支障ない。prerequisite を省略する表現は「宣言なしに object が欠けた bundle」となり悪化するため採らない
 
 ## ロードマップ
 
