@@ -1,5 +1,6 @@
 # cargo のビルド成果物
 /target/
+/mcu/target/
 
 # make web が配置する wasm (配信用)
 /web/tig_web.wasm

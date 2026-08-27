@@ -88,4 +88,10 @@ in
     ${cargoEnv}
     cargo build --offline --locked -p tig-web --target wasm32-unknown-unknown
   '';
+
+  # 組み込み例 (no_std staticlib) がビルドできること。
+  build-mcu = mkCheck "build-mcu" [ toolchain ] ''
+    ${cargoEnv}
+    cargo build --offline --locked --manifest-path mcu/Cargo.toml --target thumbv7em-none-eabi
+  '';
 }

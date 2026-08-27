@@ -49,6 +49,11 @@ jobs:
       - name: build web
         run: cargo build --locked -p tig-web --target wasm32-unknown-unknown --release
 
+      - name: build mcu example
+        run: |
+          cargo build --locked --manifest-path mcu/Cargo.toml --target thumbv7em-none-eabi --release
+          cargo build --locked --manifest-path mcu/Cargo.toml --target riscv32imac-unknown-none-elf --release
+
   # GitHub Pages (docpages + playground)。main への push 時のみ、生成した
   # サイトを gh-pages branch へ配置する。追加の action 依存を避け、git で
   # 直接 push する。Pages の配信元は repository の Settings → Pages で

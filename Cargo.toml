@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["core", "cli", "web"]
+# mcu は no_std staticlib で panic=abort の profile を要するため独立 crate とする。
+exclude = ["mcu"]
 
 [workspace.package]
 version = "0.1.0"

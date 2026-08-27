@@ -1,0 +1,32 @@
+# 組み込み firmware への組み込み例。
+#
+# no_std の staticlib は panic=abort を要し、profile は crate 単位で設定できない
+# ため、workspace から exclude した独立 crate とする (root の Cargo.toml を参照)。
+[package]
+name = "tig-mcu-example"
+description = "firmware へ link する例: no_std staticlib + bump allocator + C ABI"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/sabas0ba/tig"
+
+[lib]
+crate-type = ["staticlib"]
+test = false
+doctest = false
+bench = false
+
+[dependencies]
+tig-core = { path = "../core", features = ["bundle", "history"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
+[workspace]
