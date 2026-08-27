@@ -10,9 +10,13 @@
     # wasm32-unknown-unknown / thumbv7em-none-eabi のクロスビルドに使えないため
     # fenix を用いる。fenix は公式 static.rust-lang.org の配布物を SHA256 検証付きで
     # 取得する。この rev の stable は 1.97.1 (rust-toolchain.toml と一致させること)。
+    # rust-analyzer-src は fenix が rust-analyzer の nightly ビルドのために持つ入力で、
+    # toolchain の供給には使わない。ブランチ参照 (nightly) のまま flake.lock に残ると
+    # 固定の方針に反するため、follows = "" で取り除く。
     fenix = {
       url = "github:nix-community/fenix/d57340fe40c2ee12f86c0e087d2239d682b54eb0"; # 2026-08-19
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.rust-analyzer-src.follows = "";
     };
   };
 
