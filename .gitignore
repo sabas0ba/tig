@@ -1,0 +1,22 @@
+# cargo のビルド成果物
+/target/
+
+# direnv および nix-direnv のキャッシュ
+/.direnv/
+
+# マシン固有の設定。秘密情報を含みうるため git 管理外とする (.envrc から読み込む)
+.envrc.local
+
+# nix build の成果物 symlink
+result
+result-*
+
+# 作業用の一時ファイル置き場。リポジトリ外部 (/tmp 等) ではなくここを使用する
+/.work/
+
+# Claude Code がセッションごとに書き込む設定。共有する設定は .claude/settings.json に置く
+/.claude/settings.local.json
+
+# エディタおよび OS が生成する一時ファイル
+*.swp
+.DS_Store
