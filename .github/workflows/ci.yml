@@ -1,0 +1,47 @@
+# CI。Linux のみ、外部 action は SHA で固定した actions/checkout に限定する。
+#
+# toolchain は rust-toolchain.toml (rustup が自動で参照する) で固定しており、
+# runner にプリインストールされた rustup がそのまま使う。Nix の検査 (nix flake
+# check) は Nix インストーラという追加依存を要するため CI では実行せず、
+# 開発環境側で実行する。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # rust-toolchain.toml の指定 (版・component・target) を導入する。
+      - name: install toolchain
+        run: rustup toolchain install
+
+      - name: fmt
+        run: cargo fmt --check
+
+      - name: clippy
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+      - name: test
+        run: cargo test --locked --workspace --all-features
+
+      - name: build wasm32
+        run: cargo build --locked -p tig-core --all-features --target wasm32-unknown-unknown --release
+
+      - name: build thumbv7em
+        run: cargo build --locked -p tig-core --all-features --target thumbv7em-none-eabi --release
+
+      - name: build riscv32
+        run: cargo build --locked -p tig-core --all-features --target riscv32imac-unknown-none-elf --release
+
+      - name: build riscv64
+        run: cargo build --locked -p tig-core --all-features --target riscv64gc-unknown-none-elf --release

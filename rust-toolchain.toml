@@ -1,0 +1,11 @@
+# rustup 環境 (CI を含む) が使用する toolchain の固定。
+# Nix 環境では nix/toolchain.nix (fenix) が同じ版を供給する。更新は両方を同時に行う。
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+targets = [
+    "wasm32-unknown-unknown",
+    "thumbv7em-none-eabi",
+    "riscv32imac-unknown-none-elf",
+    "riscv64gc-unknown-none-elf",
+]

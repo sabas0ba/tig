@@ -1,0 +1,14 @@
+[package]
+name = "tig-cli"
+description = "tig-core の動作確認用 CLI (std)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tig"
+path = "src/main.rs"
+
+[dependencies]
+tig-core = { path = "../core", features = ["bundle", "history"] }
