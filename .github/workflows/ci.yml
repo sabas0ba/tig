@@ -48,3 +48,35 @@ jobs:
 
       - name: build web
         run: cargo build --locked -p tig-web --target wasm32-unknown-unknown --release
+
+  # GitHub Pages (docpages + playground)。main への push 時のみ、生成した
+  # サイトを gh-pages branch へ配置する。追加の action 依存を避け、git で
+  # 直接 push する。Pages の配信元は repository の Settings → Pages で
+  # gh-pages branch (root) を一度だけ指定する。
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: install toolchain
+        run: rustup toolchain install
+
+      - name: build site
+        run: make site
+
+      # 生成物の branch のため履歴は持たず、1 commit を force push で置き換える。
+      - name: deploy to gh-pages
+        run: |
+          git -C _site init -q -b gh-pages
+          git -C _site config user.name "github-actions[bot]"
+          git -C _site config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C _site add -A
+          git -C _site commit -qm "site: deploy ${GITHUB_SHA}"
+          git -C _site push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

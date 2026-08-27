@@ -70,6 +70,17 @@ serve: web ## web frontend をローカルで配信する (http://127.0.0.1:8000
 	@command -v python3 >/dev/null || { echo "python3 が必要です (任意の静的サーバでも可)"; exit 1; }
 	cd web && python3 -m http.server 8000
 
+.PHONY: site
+site: web ## GitHub Pages 用の静的サイト (landing + rustdoc + playground) を _site/ に構成する
+	cargo doc --no-deps -p tig-core --all-features
+	rm -rf _site
+	mkdir -p _site/playground
+	cp site/index.html _site/
+	cp web/index.html web/app.js web/tig_web.wasm _site/playground/
+	cp -r target/doc _site/doc
+	rm -f _site/doc/.lock
+	touch _site/.nojekyll
+
 .PHONY: riscv
 riscv: ## core を riscv32imac / riscv64gc (bare metal) 向けにビルドする (release)
 	cargo build -p tig-core --all-features --target riscv32imac-unknown-none-elf --release

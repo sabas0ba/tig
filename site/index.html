@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tig — no_std git client</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e;
+    --line: #d1d9e0; --accent: #0969da; --panel: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0;
+      --line: #30363d; --accent: #4493f8; --panel: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; max-width: 46rem; padding: 2rem 1rem 4rem;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.7 system-ui, sans-serif;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid var(--line); padding-bottom: 0.25rem; }
+  .tagline { color: var(--muted); margin-top: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .links { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1.25rem 0; }
+  .links a {
+    padding: 0.4rem 0.9rem; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); font-weight: 600;
+  }
+  .links a:hover { border-color: var(--accent); text-decoration: none; }
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 0.75rem; overflow-x: auto;
+    font: 0.85rem/1.5 ui-monospace, monospace;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.3rem 0.75rem 0.3rem 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+  .note { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>tig</h1>
+<p class="tagline">no_std Rust による git client。ブラウザ (WASM)、組み込み (Cortex-M / RISC-V)、ホストの全てで同一の core が動く。外部 crate 依存なし。</p>
+
+<div class="links">
+  <a href="playground/">Playground</a>
+  <a href="doc/tig_core/">API docs (rustdoc)</a>
+  <a href="https://github.com/sabas0ba/tig">GitHub</a>
+</div>
+
+<h2>Playground</h2>
+<p><a href="playground/">Playground</a> はこのライブラリの web frontend そのもので、wasm 約 90 KB がブラウザ内で動く。git bundle ファイルを開いて refs / 履歴 / commit を閲覧できるほか、smart HTTP の URL から直接 clone して bundle をダウンロードできる。</p>
+<p class="note">ブラウザからの clone は対象サーバが CORS を許可している場合に限る (同一オリジンまたは proxy 経由を推奨)。bundle の閲覧はネットワーク不要で、データはブラウザの外に出ない。</p>
+
+<h2>できること</h2>
+<pre>$ tig clone http://host/repo.git --depth 1   # smart HTTP から bundle へ clone
+$ git bundle create repo.bundle --all        # またはオフライン配布 (通常の git)
+$ tig refs repo.bundle
+$ tig log repo.bundle --ref refs/heads/main -n 10
+$ tig cat-file repo.bundle &lt;oid&gt;</pre>
+
+<h2>構成</h2>
+<table>
+  <tr><th>crate</th><th>内容</th></tr>
+  <tr><td><code>tig-core</code></td><td>no_std (+ alloc) の本体。SHA-1 / zlib inflate / object / pack / bundle / history walk / protocol v2 をすべて自前実装</td></tr>
+  <tr><td><code>tig-cli</code></td><td>CLI (std)。clone と bundle の閲覧</td></tr>
+  <tr><td><code>tig-web</code></td><td>ブラウザ frontend。wasm-bindgen 不使用 (C ABI + 手書き JS glue)</td></tr>
+</table>
+
+<h2>検証</h2>
+<p>実物の git との差分テストを主軸とする。git が生成した repository / bundle に対して refs・履歴順序・全 object 内容を突き合わせ、clone は <code>git http-backend</code> との end-to-end テストで git 自身が bundle を verify / clone できることまで確認している。詳細は <a href="https://github.com/sabas0ba/tig/blob/main/docs/design.md">docs/design.md</a> を参照。</p>
+</body>
+</html>

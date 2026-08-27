@@ -47,6 +47,10 @@ $ make serve   # wasm をビルドして http://127.0.0.1:8000 で配信
 
 bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone できる (対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
 
+## GitHub Pages (docpages + playground)
+
+main への push 時に CI が `make site` の生成物 (landing + rustdoc + web frontend) を gh-pages branch へ配置する。配信の有効化は repository の Settings → Pages で「Deploy from a branch」の gh-pages (root) を一度だけ指定する。ローカルでの確認は `make site` の後に `_site/` を任意の静的サーバで配信する。
+
 ## 開発環境
 
 Nix + direnv を基本とするが、rustup でも同一の toolchain (rust-toolchain.toml で固定) が入る。
