@@ -12,9 +12,10 @@ no_std Rust による git client。ブラウザ (WASM)、組み込み (Cortex-M 
 
 | crate | 内容 |
 |---|---|
-| `core` (tig-core) | no_std の本体。object / pack / bundle の解析、history walk、protocol v2 |
-| `cli` (tig-cli) | 動作確認用 CLI (std)。clone と bundle の refs / log / cat-file |
+| `core` (tig-core) | no_std の本体。object / pack / bundle の解析と生成、history walk、clone / push / checkout |
+| `cli` (tig-cli) | 動作確認用 CLI (std)。clone / push / checkout と bundle の refs / log / cat-file |
 | `web` (tig-web) | ブラウザ向け frontend。C ABI + 手書き JS glue (wasm-bindgen 不使用) |
+| `mcu` (tig-mcu-example) | firmware へ link する組み込み例 (no_std staticlib、workspace 外) |
 
 tig-core の feature:
 
@@ -26,6 +27,9 @@ tig-core の feature:
 | `history` | committer date 順の history walk |
 | `transport-http` | protocol v2 の request 構築と response 解析 (sans-io) |
 | `fetch` | smart HTTP からの clone 状態機械 (`transport-http` + `bundle`) |
+| `write` | object (tree / commit) の生成と packfile の書き出し |
+| `push` | smart HTTP への push 状態機械 (receive-pack、`write` を内包) |
+| `checkout` | tree の展開 (filesystem は frontend の責務) |
 
 ## 使用例 (CLI)
 
@@ -35,6 +39,8 @@ $ git bundle create repo.bundle --all        # またはオフライン配布 (�
 $ tig refs repo.bundle
 $ tig log repo.bundle --ref refs/heads/main -n 10
 $ tig cat-file repo.bundle <oid>
+$ tig checkout repo.bundle refs/heads/main -o worktree   # tree の展開
+$ tig push http://host/dst.git repo.bundle               # bundle から push
 ```
 
 CLI の clone は http:// のみ対応する (TLS は依存ゼロでは持たない)。https はブラウザ frontend の fetch が担う。
