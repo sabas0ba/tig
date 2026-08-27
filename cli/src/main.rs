@@ -10,13 +10,13 @@ use tig_core::bundle::Bundle;
 use tig_core::history::Walk;
 use tig_core::oid::Oid;
 
-const USAGE: &str = "使用方法:
-  tig refs <bundle>                     ref の一覧を表示する
-  tig log <bundle> [options]            履歴を committer date 順に表示する
-    --ref <name>   開始点の ref (既定: 全 ref)
-    -n <count>     表示する commit 数の上限
-    --format <f>   oid | oneline (既定) | full
-  tig cat-file <bundle> <oid>           object の内容を表示する";
+const USAGE: &str = "usage:
+  tig refs <bundle>                     list refs
+  tig log <bundle> [options]            show history in committer date order
+    --ref <name>   start point ref (default: all refs)
+    -n <count>     limit the number of commits shown
+    --format <f>   oid | oneline (default) | full
+  tig cat-file <bundle> <oid>           print object content";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -91,7 +91,7 @@ fn log(args: &[String]) -> Result<(), String> {
         Some(name) => {
             let oid = bundle
                 .find_ref(name.as_bytes())
-                .ok_or_else(|| format!("ref が見つかりません: {name}"))?;
+                .ok_or_else(|| format!("ref not found: {name}"))?;
             walk.push(oid).map_err(|e| e.to_string())?;
         }
         None => {
@@ -143,7 +143,7 @@ fn cat_file(args: &[String]) -> Result<(), String> {
         .pack
         .read_object(&oid)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("object が見つかりません: {oid_hex}"))?;
+        .ok_or_else(|| format!("object not found: {oid_hex}"))?;
     // git cat-file と同様、body をそのまま出力する (tree は生のバイナリになる)。
     let mut out = std::io::stdout().lock();
     out.write_all(&body).map_err(|e| e.to_string())?;
