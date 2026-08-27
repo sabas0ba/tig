@@ -54,6 +54,36 @@ pub fn inflate_zlib(input: &[u8], size_hint: Option<usize>) -> Result<Inflated> 
     })
 }
 
+/// zlib stream を生成する (DEFLATE の stored block のみ、feature `write`)。
+///
+/// 圧縮は行わない。git は伸長後の内容だけを検証するため、無圧縮の zlib stream
+/// でも相互運用できる。圧縮率より実装の小ささと検証容易性を優先した選択で、
+/// 転送量が問題になる場合は fixed Huffman の追加を検討する (docs/design.md)。
+#[cfg(feature = "write")]
+pub fn deflate_zlib_stored(data: &[u8]) -> Vec<u8> {
+    // stored block は「1 byte header + LE の len / !len + データ」。
+    const BLOCK: usize = 65_535;
+    let blocks = data.len().div_ceil(BLOCK).max(1);
+    let mut out = Vec::with_capacity(2 + data.len() + blocks * 5 + 4);
+    out.extend_from_slice(&[0x78, 0x01]); // CMF/FLG (32 KiB window、check bits 調整済み)
+
+    if data.is_empty() {
+        out.extend_from_slice(&[0x01, 0x00, 0x00, 0xff, 0xff]);
+    } else {
+        let mut chunks = data.chunks(BLOCK).peekable();
+        while let Some(chunk) = chunks.next() {
+            out.push(if chunks.peek().is_none() { 0x01 } else { 0x00 });
+            let len = chunk.len() as u16;
+            out.extend_from_slice(&len.to_le_bytes());
+            out.extend_from_slice(&(!len).to_le_bytes());
+            out.extend_from_slice(chunk);
+        }
+    }
+
+    out.extend_from_slice(&adler32(data).to_be_bytes());
+    out
+}
+
 /// adler32 (RFC 1950)。
 pub fn adler32(data: &[u8]) -> u32 {
     const MOD: u32 = 65_521;
@@ -415,5 +445,19 @@ mod tests {
     fn adler32_vectors() {
         assert_eq!(adler32(b""), 1);
         assert_eq!(adler32(b"Wikipedia"), 0x11e6_0398);
+    }
+
+    // 圧縮側の出力を自前の伸長器で往復させる。伸長器は git の実データとの
+    // 差分テストで検証済みのため、往復一致が相互運用の根拠になる。
+    #[cfg(feature = "write")]
+    #[test]
+    fn stored_deflate_roundtrip() {
+        for len in [0usize, 1, 100, 65_534, 65_535, 65_536, 200_000] {
+            let data: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let compressed = deflate_zlib_stored(&data);
+            let inflated = inflate_zlib(&compressed, Some(len)).unwrap();
+            assert_eq!(inflated.data, data, "len={len}");
+            assert_eq!(inflated.consumed, compressed.len(), "len={len}");
+        }
     }
 }

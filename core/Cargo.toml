@@ -18,6 +18,12 @@ history = []
 transport-http = []
 # smart HTTP からの clone 状態機械
 fetch = ["transport-http", "bundle"]
+# object (tree / commit) の生成と packfile の書き出し
+write = []
+# smart HTTP への push 状態機械 (receive-pack、protocol v0)
+push = ["write", "transport-http"]
+# tree の展開 (filesystem は frontend の責務)
+checkout = []
 
 [lib]
 name = "tig_core"
