@@ -23,12 +23,31 @@ impl Url {
             Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
             None => (rest, ""),
         };
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((h, p)) => (
-                h.to_owned(),
-                p.parse::<u16>().map_err(|_| format!("invalid port: {p}"))?,
-            ),
-            None => (authority.to_owned(), 80),
+
+        // IPv6 リテラルは "[::1]:8080" 形式。接続には括弧を外した表記を使い、
+        // Host header 用の表記は host_header() が復元する。
+        let (host, port_str) = if let Some(inner) = authority.strip_prefix('[') {
+            let (host, after) = inner
+                .split_once(']')
+                .ok_or_else(|| format!("invalid URL: {s}"))?;
+            let port_str = match after {
+                "" => None,
+                _ => Some(
+                    after
+                        .strip_prefix(':')
+                        .ok_or_else(|| format!("invalid URL: {s}"))?,
+                ),
+            };
+            (host.to_owned(), port_str)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h.to_owned(), Some(p)),
+                None => (authority.to_owned(), None),
+            }
+        };
+        let port = match port_str {
+            Some(p) => p.parse::<u16>().map_err(|_| format!("invalid port: {p}"))?,
+            None => 80,
         };
         if host.is_empty() {
             return Err(format!("invalid URL: {s}"));
@@ -39,6 +58,15 @@ impl Url {
             path: path.to_owned(),
         })
     }
+
+    /// Host header 用の表記。IPv6 リテラルは括弧付きに戻す。
+    fn host_header(&self) -> String {
+        if self.host.contains(':') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
 }
 
 /// repository URL からの相対 path へ request を送り、200 の body を返す。
@@ -48,8 +76,9 @@ pub fn request(url: &Url, rel: &str, body: Option<(&str, &[u8])>) -> Result<Vec<
 
     let method = if body.is_some() { "POST" } else { "GET" };
     let mut head = format!(
-        "{method} {}/{rel} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nGit-Protocol: version=2\r\nAccept: */*\r\n",
-        url.path, url.host, url.port
+        "{method} {}/{rel} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nGit-Protocol: version=2\r\nAccept: */*\r\n",
+        url.path,
+        url.host_header()
     );
     if let Some((content_type, data)) = body {
         head.push_str(&format!(
@@ -144,9 +173,26 @@ mod tests {
         assert_eq!(u.host, "example.com");
         assert_eq!(u.port, 8080);
         assert_eq!(u.path, "/path/repo.git");
+        assert_eq!(u.host_header(), "example.com:8080");
 
         assert!(Url::parse("https://example.com/x").is_err());
         assert!(Url::parse("http://:80/").is_err());
+    }
+
+    #[test]
+    fn url_parse_ipv6() {
+        let u = Url::parse("http://[::1]:8000/repo.git").unwrap();
+        assert_eq!(u.host, "::1");
+        assert_eq!(u.port, 8000);
+        assert_eq!(u.host_header(), "[::1]:8000");
+
+        let u = Url::parse("http://[2001:db8::1]/repo.git").unwrap();
+        assert_eq!(u.host, "2001:db8::1");
+        assert_eq!(u.port, 80);
+        assert_eq!(u.host_header(), "[2001:db8::1]:80");
+
+        assert!(Url::parse("http://[::1/x").is_err());
+        assert!(Url::parse("http://[::1]8000/x").is_err());
     }
 
     #[test]
