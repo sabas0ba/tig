@@ -45,3 +45,6 @@ jobs:
 
       - name: build riscv64
         run: cargo build --locked -p tig-core --all-features --target riscv64gc-unknown-none-elf --release
+
+      - name: build web
+        run: cargo build --locked -p tig-web --target wasm32-unknown-unknown --release

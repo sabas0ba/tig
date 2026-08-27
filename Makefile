@@ -60,6 +60,16 @@ wasm: ## core を wasm32-unknown-unknown 向けにビルドする (release)
 thumb: ## core を thumbv7em-none-eabi 向けにビルドする (release)
 	cargo build -p tig-core --all-features --target thumbv7em-none-eabi --release
 
+.PHONY: web
+web: ## web frontend (wasm) をビルドして web/ に配置する
+	cargo build -p tig-web --target wasm32-unknown-unknown --release
+	cp target/wasm32-unknown-unknown/release/tig_web.wasm web/tig_web.wasm
+
+.PHONY: serve
+serve: web ## web frontend をローカルで配信する (http://127.0.0.1:8000)
+	@command -v python3 >/dev/null || { echo "python3 が必要です (任意の静的サーバでも可)"; exit 1; }
+	cd web && python3 -m http.server 8000
+
 .PHONY: riscv
 riscv: ## core を riscv32imac / riscv64gc (bare metal) 向けにビルドする (release)
 	cargo build -p tig-core --all-features --target riscv32imac-unknown-none-elf --release

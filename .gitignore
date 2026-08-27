@@ -1,6 +1,9 @@
 # cargo のビルド成果物
 /target/
 
+# make web が配置する wasm (配信用)
+/web/tig_web.wasm
+
 # direnv および nix-direnv のキャッシュ
 /.direnv/
 
