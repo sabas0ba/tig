@@ -82,4 +82,10 @@ in
     ${cargoEnv}
     cargo build --offline --locked -p tig-core --all-features --target riscv64gc-unknown-none-elf
   '';
+
+  # web frontend (cdylib) が WASM 向けにビルドできること。
+  build-web = mkCheck "build-web" [ toolchain ] ''
+    ${cargoEnv}
+    cargo build --offline --locked -p tig-web --target wasm32-unknown-unknown
+  '';
 }

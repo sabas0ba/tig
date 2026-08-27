@@ -1,14 +1,13 @@
 [package]
-name = "tig-cli"
-description = "tig-core の動作確認用 CLI (std)"
+name = "tig-web"
+description = "ブラウザ向け frontend (wasm32-unknown-unknown、C ABI + 手書き JS glue)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[[bin]]
-name = "tig"
-path = "src/main.rs"
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 tig-core = { path = "../core", features = ["bundle", "history", "fetch"] }

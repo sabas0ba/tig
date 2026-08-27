@@ -12,8 +12,9 @@ no_std Rust による git client。ブラウザ (WASM)、組み込み (Cortex-M 
 
 | crate | 内容 |
 |---|---|
-| `core` (tig-core) | no_std の本体。object / pack / bundle の解析と history walk |
-| `cli` (tig-cli) | 動作確認用 CLI (std)。bundle の refs / log / cat-file |
+| `core` (tig-core) | no_std の本体。object / pack / bundle の解析、history walk、protocol v2 |
+| `cli` (tig-cli) | 動作確認用 CLI (std)。clone と bundle の refs / log / cat-file |
+| `web` (tig-web) | ブラウザ向け frontend。C ABI + 手書き JS glue (wasm-bindgen 不使用) |
 
 tig-core の feature:
 
@@ -21,17 +22,34 @@ tig-core の feature:
 |---|---|
 | (常時) | oid、SHA-1、zlib inflate、loose object の parse |
 | `pack` | packfile v2 の解析と delta 解決 |
-| `bundle` | bundle v2/v3 の読み込み (`pack` を内包) |
+| `bundle` | bundle v2/v3 の読み書き (`pack` を内包) |
 | `history` | committer date 順の history walk |
+| `transport-http` | protocol v2 の request 構築と response 解析 (sans-io) |
+| `fetch` | smart HTTP からの clone 状態機械 (`transport-http` + `bundle`) |
 
 ## 使用例 (CLI)
 
 ```console
-$ git bundle create repo.bundle --all   # 配布側 (通常の git)
+$ tig clone http://host/repo.git --depth 1   # smart HTTP から bundle へ clone
+$ git bundle create repo.bundle --all        # またはオフライン配布 (通常の git)
 $ tig refs repo.bundle
 $ tig log repo.bundle --ref refs/heads/main -n 10
 $ tig cat-file repo.bundle <oid>
 ```
+
+CLI の clone は http:// のみ対応する (TLS は依存ゼロでは持たない)。https はブラウザ frontend の fetch が担う。
+
+## 使用例 (web)
+
+```console
+$ make serve   # wasm をビルドして http://127.0.0.1:8000 で配信
+```
+
+bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone できる (対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
+
+## GitHub Pages (docpages + playground)
+
+main への push 時に CI が `make site` の生成物 (landing + rustdoc + web frontend) を gh-pages branch へ配置する。配信の有効化は repository の Settings → Pages で「Deploy from a branch」の gh-pages (root) を一度だけ指定する。ローカルでの確認は `make site` の後に `_site/` を任意の静的サーバで配信する。
 
 ## 開発環境
 

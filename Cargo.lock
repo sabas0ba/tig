@@ -12,3 +12,10 @@ dependencies = [
 [[package]]
 name = "tig-core"
 version = "0.1.0"
+
+[[package]]
+name = "tig-web"
+version = "0.1.0"
+dependencies = [
+ "tig-core",
+]

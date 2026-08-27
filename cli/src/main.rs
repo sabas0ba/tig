@@ -6,11 +6,18 @@
 use std::io::Write;
 use std::process::ExitCode;
 
-use tig_core::bundle::Bundle;
+use tig_core::bundle::{self, Bundle};
+use tig_core::clone::{Clone as CloneDriver, CloneOptions, REQUEST_CONTENT_TYPE, Request};
 use tig_core::history::Walk;
 use tig_core::oid::Oid;
 
+mod http;
+
 const USAGE: &str = "usage:
+  tig clone <url> [options]             clone over smart HTTP into a bundle
+    -o <file>      output bundle path (default: <repo>.bundle)
+    --depth <n>    shallow clone depth
+    --ref <name>   fetch a single ref (e.g. refs/heads/main)
   tig refs <bundle>                     list refs
   tig log <bundle> [options]            show history in committer date order
     --ref <name>   start point ref (default: all refs)
@@ -32,11 +39,87 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<(), String> {
     let (cmd, rest) = args.split_first().ok_or(USAGE)?;
     match cmd.as_str() {
+        "clone" => clone(rest),
         "refs" => refs(rest),
         "log" => log(rest),
         "cat-file" => cat_file(rest),
         _ => Err(USAGE.into()),
     }
+}
+
+fn clone(args: &[String]) -> Result<(), String> {
+    let (url_str, mut rest) = args.split_first().ok_or(USAGE)?;
+    let mut out_path: Option<String> = None;
+    let mut opts = CloneOptions::default();
+    while let Some((flag, next)) = rest.split_first() {
+        rest = next;
+        let mut value = || -> Result<&String, String> {
+            let (v, next) = rest.split_first().ok_or(USAGE)?;
+            rest = next;
+            Ok(v)
+        };
+        match flag.as_str() {
+            "-o" => out_path = Some(value()?.clone()),
+            "--depth" => opts.depth = Some(value()?.parse().map_err(|_| USAGE.to_string())?),
+            "--ref" => opts.want_ref = Some(value()?.clone().into_bytes()),
+            _ => return Err(USAGE.into()),
+        }
+    }
+
+    let url = http::Url::parse(url_str)?;
+    let out_path = out_path.unwrap_or_else(|| default_bundle_name(url_str));
+
+    let mut driver = CloneDriver::new(opts);
+    while let Some(request) = driver.next_request() {
+        let body = match &request {
+            Request::Get { path } => http::request(&url, path, None)?,
+            Request::Post { path, body } => {
+                http::request(&url, path, Some((REQUEST_CONTENT_TYPE, body)))?
+            }
+        };
+        driver.on_response(&body).map_err(|e| e.to_string())?;
+    }
+    let outcome = driver.finish().map_err(|e| e.to_string())?;
+
+    let refs: Vec<(&[u8], Oid)> = outcome
+        .refs
+        .iter()
+        .map(|e| (e.name.as_slice(), e.oid))
+        .collect();
+    let data = bundle::write(&refs, &outcome.shallow, &outcome.pack).map_err(|e| e.to_string())?;
+    std::fs::write(&out_path, &data).map_err(|e| format!("{out_path}: {e}"))?;
+
+    println!(
+        "{}: {} refs, {} bytes ({})",
+        out_path,
+        refs.len(),
+        data.len(),
+        if outcome.shallow.is_empty() {
+            "full".to_owned()
+        } else {
+            format!("shallow, {} boundary commits", outcome.shallow.len())
+        }
+    );
+    if !outcome.shallow.is_empty() {
+        // prerequisite 付きの bundle は git では前提 commit を持つ repository で
+        // しか使えない (bundle 形式に shallow の表現が無いため)。
+        println!(
+            "note: shallow bundle is readable by tig; git can use it only where the prerequisite commits already exist"
+        );
+    }
+    Ok(())
+}
+
+/// URL の末尾要素から出力ファイル名を導出する (例: .../repo.git -> repo.bundle)。
+fn default_bundle_name(url: &str) -> String {
+    let last = url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("repo");
+    let stem = last.strip_suffix(".git").unwrap_or(last);
+    let stem = if stem.is_empty() { "repo" } else { stem };
+    format!("{stem}.bundle")
 }
 
 fn load(path: &str) -> Result<Vec<u8>, String> {

@@ -11,17 +11,19 @@
 
 ```
 cli (std) ─┐
-web (M4)  ─┼─▶ tig-core (no_std + alloc)
+web (wasm) ─┼─▶ tig-core (no_std + alloc)
 mcu (例)  ─┘      ├─ 常時: oid / sha1 / zlib inflate / object parse
-                  ├─ feature pack:    packfile v2 + delta 解決
-                  ├─ feature bundle:  bundle v2/v3 (pack を内包)
-                  ├─ feature history: committer date 順の walk
-                  └─ (M4) feature transport-http: protocol v2 state machine
+                  ├─ feature pack:           packfile v2 + delta 解決
+                  ├─ feature bundle:         bundle v2/v3 の読み書き (pack を内包)
+                  ├─ feature history:        committer date 順の walk
+                  ├─ feature transport-http: protocol v2 state machine (sans-io)
+                  └─ feature fetch:          clone 状態機械 (transport-http + bundle)
 ```
 
 - core は I/O を一切行わない。入力は `&[u8]`、出力は `Vec<u8>` または呼び出し側の書き込み
 - 環境差 (fetch / OPFS / flash / socket) は frontend 側の責務とする
-- transport (M4) は sans-io で実装する。「入力 byte 列を渡すと、次に送るべき要求と解析結果が返る」状態機械とし、HTTP client 自体は持たない。async executor を core に持ち込まないための選択
+- transport は sans-io で実装する。clone は「次に送るべき HTTP request を返し、response body を受け取って進む」状態機械 (`clone::Clone`) で、HTTP client 自体は持たない。async executor を core に持ち込まないための選択。CLI は std の最小 HTTP/1.1 client (http のみ)、web は fetch() で同じ状態機械を駆動する
+- web frontend は wasm-bindgen 等の glue crate に依存しない。C ABI (長さ前置バッファの受け渡し規約) を web crate が公開し、手書きの JS glue (web/app.js) が接続する
 
 ## メモリ設計
 
@@ -58,14 +60,16 @@ git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に�
 
 - pack version 2 / bundle v2, v3 (object-format=sha1)。SHA-256 repository は明示的にエラーとする (誤読しない)
 - oid は型として分離してあり、SHA-256 対応は `oid` module の拡張で吸収する
-- walk の順序は `git log --date-order` と同一。default の `git log` (generation number を使う topo 順) は対象外
+- walk の順序は `git log --date-order` と同一 (topology 制約 + committer date 順。date 同点の順序のみ oid で決定的にしており git の投入順とは異なりうる)。default の `git log` (generation number を使う topo 順) は対象外
 - 存在しない parent (bundle の prerequisite / shallow) は履歴の境界として扱う
+- protocol v2 のみ対応 (v0/v1 の server は明示的にエラー)。fetch は negotiation なしの clone 相当 (常に done) で、深さは `deepen` のみ
+- shallow clone の bundle 表現: bundle 形式には shallow graft が無いため、「pack に含まれない親を prerequisite に記録する」までを行う。複数の tip を depth 付きで clone した場合、tip 同士が pack 内で親子だと walk はそこを辿る (git の shallow clone は graft で打ち切る点が異なる)。また prerequisite 付き bundle は形式の定義上 incremental bundle であり、git はその commit を持つ repository でしか verify / clone できない。tig 自身の閲覧には支障ない。prerequisite を省略する表現は「宣言なしに object が欠けた bundle」となり悪化するため採らない
 
 ## ロードマップ
 
 - M1–M3 (実装済み): 環境、primitives、object / pack / bundle、history walk、CLI、差分テスト
-- M4: transport-http (protocol v2 の sans-io state machine) → shallow fetch → web frontend (wasm-bindgen)。ブラウザからの clone は CORS の制約があるため、proxy 前提か対応サーバ限定かを実装前に決める
-- M5 以降: commit / push (`write` feature)、checkout (Fs trait 経由)、base cache 等の性能改善
+- M4 (実装済み): transport-http (protocol v2 の sans-io state machine)、shallow fetch、CLI clone (git http-backend との end-to-end 差分テスト付き)、web frontend。ブラウザからの clone は対象サーバの CORS 許可が前提 (同一オリジンまたは proxy 経由を推奨)
+- M5 以降: commit / push (`write` feature)、checkout (Fs trait 経由)、base cache 等の性能改善、マイコン実機の frontend 例
 
 ## toolchain の固定
 
