@@ -200,17 +200,30 @@ fn checkout_cmd(args: &[String]) -> Result<(), String> {
         return Err(format!("directory not empty: {dir}"));
     }
     std::fs::create_dir_all(out_dir).map_err(|e| e.to_string())?;
+    let root = out_dir.canonicalize().map_err(|e| e.to_string())?;
 
     let mut count = 0usize;
     checkout::walk(&src.pack, tree, &mut |path, kind, content| {
-        let path_str = String::from_utf8_lossy(path).into_owned();
-        let target = out_dir.join(&path_str);
+        // tree の name は core 側で検証済み ('/'・'..' 等は拒否) だが、細工された
+        // bundle は先に symlink を置いて directory と衝突させ、root の外へ誘導
+        // できる。parent の実体 (canonicalize) が root 配下であることを確かめ、
+        // 既存ファイルへの上書きは create_new で拒否する。
+        let target = root.join(rel_path(path)?);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(io_err)?;
+            let canonical = parent.canonicalize().map_err(io_err)?;
+            if !canonical.starts_with(&root) {
+                return Err(tig_core::err::Error::Corrupt("path escapes checkout root"));
+            }
         }
         match kind {
             checkout::EntryKind::File | checkout::EntryKind::Executable => {
-                std::fs::write(&target, content).map_err(io_err)?;
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .map_err(io_err)?;
+                file.write_all(content).map_err(io_err)?;
                 #[cfg(unix)]
                 if kind == checkout::EntryKind::Executable {
                     use std::os::unix::fs::PermissionsExt;
@@ -219,19 +232,20 @@ fn checkout_cmd(args: &[String]) -> Result<(), String> {
                 }
             }
             checkout::EntryKind::Symlink => {
+                // symlink() は既存の path があると失敗する (上書きしない)。
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(
-                    std::path::Path::new(&String::from_utf8_lossy(content).into_owned()),
-                    &target,
-                )
-                .map_err(io_err)?;
+                {
+                    use std::os::unix::ffi::OsStrExt;
+                    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(content), &target)
+                        .map_err(io_err)?;
+                }
                 #[cfg(not(unix))]
                 return Err(tig_core::err::Error::Unsupported(
                     "symlink on this platform",
                 ));
             }
             checkout::EntryKind::Gitlink => {
-                eprintln!("note: skipping submodule {path_str}");
+                eprintln!("note: skipping submodule {}", String::from_utf8_lossy(path));
                 return Ok(());
             }
         }
@@ -242,6 +256,26 @@ fn checkout_cmd(args: &[String]) -> Result<(), String> {
 
     println!("{dir}: {count} entries");
     Ok(())
+}
+
+/// tree からの相対 path を OS の path へ写す。unix では byte 列をそのまま使い
+/// (非 UTF-8 の名前を保つ)、他の platform では UTF-8 のみを受け付ける。
+#[cfg(unix)]
+fn rel_path(path: &[u8]) -> Result<std::path::PathBuf, tig_core::err::Error> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path)))
+}
+
+#[cfg(not(unix))]
+fn rel_path(path: &[u8]) -> Result<std::path::PathBuf, tig_core::err::Error> {
+    let s = std::str::from_utf8(path)
+        .map_err(|_| tig_core::err::Error::Unsupported("non-UTF-8 path on this platform"))?;
+    if s.contains('\\') || s.contains(':') {
+        return Err(tig_core::err::Error::Corrupt(
+            "path separator in entry name",
+        ));
+    }
+    Ok(s.into())
 }
 
 /// checkout の callback 内で std::io::Error を core のエラーへ写す。

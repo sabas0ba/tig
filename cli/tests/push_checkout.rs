@@ -191,3 +191,37 @@ fn checkout_matches_git_worktree() {
         assert_eq!(link, Path::new("a.txt"));
     }
 }
+
+/// 非 UTF-8 の filename が U+FFFD 置換されず byte 列のまま復元されること。
+#[cfg(unix)]
+#[test]
+fn checkout_preserves_non_utf8_filename() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let base = test_dir("checkout-nonutf8");
+    let work = base.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+
+    git_at(&work, &["init", "-q", "-b", "main"], T0);
+    // Latin-1 の 0xff を含む名前 (invalid UTF-8)。git は byte 列として扱う。
+    let name = std::ffi::OsStr::from_bytes(b"caf\xe9.txt");
+    std::fs::write(work.join(name), "x\n").unwrap();
+    git_at(&work, &["add", "-A"], T0);
+    git_at(&work, &["commit", "-q", "-m", "nonutf8"], T0);
+    git_at(&work, &["bundle", "create", "out.bundle", "--all"], T0);
+
+    let out_dir = base.join("extracted");
+    run_tig(&[
+        "checkout",
+        work.join("out.bundle").to_str().unwrap(),
+        "refs/heads/main",
+        "-o",
+        out_dir.to_str().unwrap(),
+    ]);
+
+    let names: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().as_bytes().to_vec())
+        .collect();
+    assert_eq!(names, vec![b"caf\xe9.txt".to_vec()]);
+}
