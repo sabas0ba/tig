@@ -49,10 +49,33 @@ jobs:
       - name: build web
         run: cargo build --locked -p tig-web --target wasm32-unknown-unknown --release
 
-      - name: build mcu example
+      - name: build mcu staticlib example
         run: |
           cargo build --locked --manifest-path mcu/Cargo.toml --target thumbv7em-none-eabi --release
           cargo build --locked --manifest-path mcu/Cargo.toml --target riscv32imac-unknown-none-elf --release
+
+  # ベアメタルの例 (mcu/bare) を QEMU 上で実際に実行して検証する。ビルドだけで
+  # なく、Cortex-M4 と RISC-V (rv32/rv64) の実行結果 (commit 数と HEAD subject)
+  # まで確認する。qemu はユーザ空間の TCG で動くため KVM は不要。
+  qemu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: install toolchain
+        run: rustup toolchain install
+
+      - name: install qemu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-arm qemu-system-misc
+
+      - name: run bare-metal example on QEMU
+        run: |
+          scripts/qemu-bare.sh arm
+          scripts/qemu-bare.sh riscv32
+          scripts/qemu-bare.sh riscv64
 
   # GitHub Pages (docpages + playground)。main への push 時のみ、生成した
   # サイトを gh-pages branch へ配置する。追加の action 依存を避け、git で

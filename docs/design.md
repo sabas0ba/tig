@@ -48,6 +48,7 @@ mcu (例)  ─┘      ├─ 常時: oid / sha1 / zlib inflate / object parse
    - walk の出力列と `git rev-list --date-order`
    - 全到達 object の内容と `git cat-file` (inflate / delta / SHA-1 の実データ検証を兼ねる)
 3. クロスビルド検証: wasm32-unknown-unknown / thumbv7em-none-eabi / riscv32imac-unknown-none-elf / riscv64gc-unknown-none-elf で core をビルドし、no_std 逸脱と word size 依存を CI で検出する
+4. QEMU 実行検証: ベアメタルの例 (mcu/bare) を QEMU (Cortex-M4 = mps2-an386、RISC-V = virt) で実際に起動し、埋め込んだ bundle の解析結果 (commit 数と HEAD subject) を出力マーカで確認する。ビルドが通るだけでなく、reset ベクタからの初期化・alloc・object 解析が実機クラスの環境で動くことまで CI で検証する
 
 git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に含むため、差分テストが網羅的なテストベクタとして機能する。
 

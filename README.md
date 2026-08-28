@@ -16,6 +16,7 @@ no_std Rust による git client。ブラウザ (WASM)、組み込み (Cortex-M 
 | `cli` (tig-cli) | 動作確認用 CLI (std)。clone / push / checkout と bundle の refs / log / cat-file |
 | `web` (tig-web) | ブラウザ向け frontend。C ABI + 手書き JS glue (wasm-bindgen 不使用) |
 | `mcu` (tig-mcu-example) | firmware へ link する組み込み例 (no_std staticlib、workspace 外) |
+| `mcu/bare` (tig-bare-example) | QEMU で実行して検証するベアメタルの例 (Cortex-M / RISC-V、ランタイムも手書き) |
 
 tig-core の feature:
 

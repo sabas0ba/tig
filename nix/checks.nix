@@ -94,4 +94,19 @@ in
     ${cargoEnv}
     cargo build --offline --locked --manifest-path mcu/Cargo.toml --target thumbv7em-none-eabi
   '';
+
+  # ベアメタルの例 (mcu/bare) を QEMU 上で実行し、出力まで検証する。qemu は
+  # ユーザ空間の TCG で動くため sandbox 内でも KVM 無しで完結する。
+  qemu-bare = mkCheck "qemu-bare" [ toolchain pkgs.qemu pkgs.bashInteractive ] ''
+    ${cargoEnv}
+    export CARGO_NET_OFFLINE=true
+    for arch in arm riscv32 riscv64; do
+      bash scripts/qemu-bare.sh "$arch"
+    done
+  '';
+
+  # シェルスクリプトの静的解析。
+  shellcheck = mkCheck "shellcheck" [ pkgs.shellcheck ] ''
+    shellcheck scripts/*.sh
+  '';
 }
