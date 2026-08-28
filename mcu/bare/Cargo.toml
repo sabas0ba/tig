@@ -1,0 +1,35 @@
+# QEMU 上のベアメタルで tig-core を実行する例。
+#
+# staticlib の例 (../) が「firmware へ link する」側であるのに対し、こちらは
+# 「実際に動くことを QEMU で検証する」側。依存ゼロの方針は変えず、ランタイム
+# (vector table / reset / semihosting / UART) も外部 crate を使わず手書きする。
+#
+# no_std の bin は panic=abort の profile を要するため、staticlib の例と同じく
+# workspace から独立させる (末尾の空 [workspace])。
+[package]
+name = "tig-bare-example"
+description = "run tig-core on QEMU bare metal (Cortex-M / RISC-V), no external crates"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/sabas0ba/tig"
+
+[[bin]]
+name = "tig-bare"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+tig-core = { path = "../../core", features = ["bundle", "history"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[workspace]
