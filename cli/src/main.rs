@@ -9,7 +9,9 @@ use std::process::ExitCode;
 use tig_core::bundle::{self, Bundle};
 use tig_core::clone::{Clone as CloneDriver, CloneOptions, REQUEST_CONTENT_TYPE, Request};
 use tig_core::history::Walk;
+use tig_core::object::Kind;
 use tig_core::oid::Oid;
+use tig_core::{checkout, pack, push};
 
 mod http;
 
@@ -18,6 +20,11 @@ const USAGE: &str = "usage:
     -o <file>      output bundle path (default: <repo>.bundle)
     --depth <n>    shallow clone depth
     --ref <name>   fetch a single ref (e.g. refs/heads/main)
+  tig push <url> <bundle> [options]     push refs from a bundle over smart HTTP
+    --ref <name>   push a single ref (default: all refs/*)
+    --to <name>    destination ref name (requires --ref)
+  tig checkout <bundle> <rev> -o <dir>  extract a tree into a directory
+                                        (<rev> is a ref name or an oid)
   tig refs <bundle>                     list refs
   tig log <bundle> [options]            show history in committer date order
     --ref <name>   start point ref (default: all refs)
@@ -40,11 +47,241 @@ fn run(args: &[String]) -> Result<(), String> {
     let (cmd, rest) = args.split_first().ok_or(USAGE)?;
     match cmd.as_str() {
         "clone" => clone(rest),
+        "push" => push_cmd(rest),
+        "checkout" => checkout_cmd(rest),
         "refs" => refs(rest),
         "log" => log(rest),
         "cat-file" => cat_file(rest),
         _ => Err(USAGE.into()),
     }
+}
+
+fn push_cmd(args: &[String]) -> Result<(), String> {
+    let [url_str, bundle_path, opts @ ..] = args else {
+        return Err(USAGE.into());
+    };
+    let mut rest = opts;
+    let mut src_ref: Option<String> = None;
+    let mut dst_ref: Option<String> = None;
+    while let Some((flag, next)) = rest.split_first() {
+        rest = next;
+        let mut value = || -> Result<&String, String> {
+            let (v, next) = rest.split_first().ok_or(USAGE)?;
+            rest = next;
+            Ok(v)
+        };
+        match flag.as_str() {
+            "--ref" => src_ref = Some(value()?.clone()),
+            "--to" => dst_ref = Some(value()?.clone()),
+            _ => return Err(USAGE.into()),
+        }
+    }
+    if dst_ref.is_some() && src_ref.is_none() {
+        return Err("--to requires --ref".into());
+    }
+
+    let data = load(bundle_path)?;
+    let src = Bundle::parse(&data).map_err(|e| e.to_string())?;
+
+    // push する ref。既定は bundle 内の refs/* (HEAD 等の symbolic 名は除く)。
+    let updates: Vec<(Vec<u8>, Oid)> = match &src_ref {
+        Some(name) => {
+            let oid = src
+                .find_ref(name.as_bytes())
+                .ok_or_else(|| format!("ref not found: {name}"))?;
+            let target = dst_ref.as_deref().unwrap_or(name.as_str());
+            vec![(target.as_bytes().to_vec(), oid)]
+        }
+        None => src
+            .refs
+            .iter()
+            .filter(|(name, _)| name.starts_with(b"refs/"))
+            .map(|(name, oid)| (name.to_vec(), *oid))
+            .collect(),
+    };
+    if updates.is_empty() {
+        return Err("no refs to push".into());
+    }
+
+    // bundle の全 object を非 delta の pack に詰め直す。remote が既に持つ
+    // object が混ざっても害はない。
+    let objects: Vec<(Kind, Vec<u8>)> = src
+        .pack
+        .oids()
+        .map(|oid| {
+            src.pack
+                .read_object(oid)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "object disappeared".to_owned())
+        })
+        .collect::<Result<_, _>>()?;
+    let refs: Vec<(Kind, &[u8])> = objects.iter().map(|(k, b)| (*k, b.as_slice())).collect();
+    let pack_data = pack::write_pack(&refs);
+
+    let url = http::Url::parse(url_str)?;
+    let mut driver = push::Push::new(updates, pack_data);
+    while let Some(request) = driver.next_request() {
+        let body = match &request {
+            push::Request::Get { path } => http::request(&url, path, None)?,
+            push::Request::Post { path, body } => {
+                http::request(&url, path, Some((push::REQUEST_CONTENT_TYPE, body)))?
+            }
+        };
+        driver.on_response(&body).map_err(|e| e.to_string())?;
+    }
+    let outcome = driver.finish().map_err(|e| e.to_string())?;
+
+    if outcome.up_to_date {
+        println!("up to date");
+        return Ok(());
+    }
+    let report = outcome.report.expect("report exists unless up to date");
+    for (name, error) in &report.results {
+        match error {
+            None => println!("ok {}", String::from_utf8_lossy(name)),
+            Some(msg) => println!(
+                "ng {} ({})",
+                String::from_utf8_lossy(name),
+                String::from_utf8_lossy(msg)
+            ),
+        }
+    }
+    if !report.is_success() {
+        return Err("push rejected by remote".into());
+    }
+    Ok(())
+}
+
+fn checkout_cmd(args: &[String]) -> Result<(), String> {
+    let [bundle_path, rev, flag, dir] = args else {
+        return Err(USAGE.into());
+    };
+    if flag != "-o" {
+        return Err(USAGE.into());
+    }
+
+    let data = load(bundle_path)?;
+    let src = Bundle::parse(&data).map_err(|e| e.to_string())?;
+
+    // rev (ref 名または oid) を tree まで剥がす。
+    let mut oid = match src.find_ref(rev.as_bytes()) {
+        Some(oid) => oid,
+        None => Oid::from_hex(rev.as_bytes()).map_err(|_| format!("unknown rev: {rev}"))?,
+    };
+    let tree = loop {
+        let (kind, body) = src
+            .pack
+            .read_object(&oid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("object not found: {oid}"))?;
+        match kind {
+            Kind::Tree => break oid,
+            Kind::Commit => {
+                break tig_core::object::parse_commit(&body)
+                    .map_err(|e| e.to_string())?
+                    .tree;
+            }
+            Kind::Tag => {
+                oid = tig_core::object::parse_tag(&body)
+                    .map_err(|e| e.to_string())?
+                    .object;
+            }
+            Kind::Blob => return Err("rev points to a blob".into()),
+        }
+    };
+
+    let out_dir = std::path::Path::new(dir);
+    if out_dir.exists()
+        && std::fs::read_dir(out_dir)
+            .map_err(|e| e.to_string())?
+            .count()
+            > 0
+    {
+        return Err(format!("directory not empty: {dir}"));
+    }
+    std::fs::create_dir_all(out_dir).map_err(|e| e.to_string())?;
+    let root = out_dir.canonicalize().map_err(|e| e.to_string())?;
+
+    let mut count = 0usize;
+    checkout::walk(&src.pack, tree, &mut |path, kind, content| {
+        // tree の name は core 側で検証済み ('/'・'..' 等は拒否) だが、細工された
+        // bundle は先に symlink を置いて directory と衝突させ、root の外へ誘導
+        // できる。parent の実体 (canonicalize) が root 配下であることを確かめ、
+        // 既存ファイルへの上書きは create_new で拒否する。
+        let target = root.join(rel_path(path)?);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(io_err)?;
+            let canonical = parent.canonicalize().map_err(io_err)?;
+            if !canonical.starts_with(&root) {
+                return Err(tig_core::err::Error::Corrupt("path escapes checkout root"));
+            }
+        }
+        match kind {
+            checkout::EntryKind::File | checkout::EntryKind::Executable => {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .map_err(io_err)?;
+                file.write_all(content).map_err(io_err)?;
+                #[cfg(unix)]
+                if kind == checkout::EntryKind::Executable {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
+                        .map_err(io_err)?;
+                }
+            }
+            checkout::EntryKind::Symlink => {
+                // symlink() は既存の path があると失敗する (上書きしない)。
+                #[cfg(unix)]
+                {
+                    use std::os::unix::ffi::OsStrExt;
+                    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(content), &target)
+                        .map_err(io_err)?;
+                }
+                #[cfg(not(unix))]
+                return Err(tig_core::err::Error::Unsupported(
+                    "symlink on this platform",
+                ));
+            }
+            checkout::EntryKind::Gitlink => {
+                eprintln!("note: skipping submodule {}", String::from_utf8_lossy(path));
+                return Ok(());
+            }
+        }
+        count += 1;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+
+    println!("{dir}: {count} entries");
+    Ok(())
+}
+
+/// tree からの相対 path を OS の path へ写す。unix では byte 列をそのまま使い
+/// (非 UTF-8 の名前を保つ)、他の platform では UTF-8 のみを受け付ける。
+#[cfg(unix)]
+fn rel_path(path: &[u8]) -> Result<std::path::PathBuf, tig_core::err::Error> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path)))
+}
+
+#[cfg(not(unix))]
+fn rel_path(path: &[u8]) -> Result<std::path::PathBuf, tig_core::err::Error> {
+    let s = std::str::from_utf8(path)
+        .map_err(|_| tig_core::err::Error::Unsupported("non-UTF-8 path on this platform"))?;
+    if s.contains('\\') || s.contains(':') {
+        return Err(tig_core::err::Error::Corrupt(
+            "path separator in entry name",
+        ));
+    }
+    Ok(s.into())
+}
+
+/// checkout の callback 内で std::io::Error を core のエラーへ写す。
+/// 詳細は失われるため、直前の出力と path から特定する。
+fn io_err(_: std::io::Error) -> tig_core::err::Error {
+    tig_core::err::Error::Corrupt("filesystem write failed")
 }
 
 fn clone(args: &[String]) -> Result<(), String> {

@@ -309,6 +309,41 @@ fn materialize(
     Ok((kind, body))
 }
 
+/// object の列から packfile (version 2、非 delta) を生成する。
+///
+/// entry の zlib stream は無圧縮 (stored block)。push の転送量よりも実装の
+/// 小ささを優先している (docs/design.md)。
+#[cfg(feature = "write")]
+pub fn write_pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"PACK");
+    out.extend_from_slice(&2u32.to_be_bytes());
+    out.extend_from_slice(&(objects.len() as u32).to_be_bytes());
+
+    for (kind, body) in objects {
+        let code: u8 = match kind {
+            Kind::Commit => OBJ_COMMIT,
+            Kind::Tree => OBJ_TREE,
+            Kind::Blob => OBJ_BLOB,
+            Kind::Tag => OBJ_TAG,
+        };
+        let mut size = body.len();
+        let mut byte = (code << 4) | (size & 0x0f) as u8;
+        size >>= 4;
+        while size > 0 {
+            out.push(byte | 0x80);
+            byte = (size & 0x7f) as u8;
+            size >>= 7;
+        }
+        out.push(byte);
+        out.extend_from_slice(&zlib::deflate_zlib_stored(body));
+    }
+
+    let digest = sha1::digest(&out);
+    out.extend_from_slice(&digest);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +389,24 @@ mod tests {
     fn empty_pack() {
         let pack = with_trailer(header(0));
         assert!(Pack::parse(&pack).unwrap().is_empty());
+    }
+
+    // 書いた pack を自前の parser (git との差分テスト済み) で往復できること。
+    #[cfg(feature = "write")]
+    #[test]
+    fn write_pack_roundtrip() {
+        let blob = b"hello\n".as_slice();
+        let large: Vec<u8> = (0..100_000usize).map(|i| (i % 251) as u8).collect();
+        let objects = [(Kind::Blob, blob), (Kind::Blob, large.as_slice())];
+        let data = write_pack(&objects);
+
+        let pack = Pack::parse(&data).unwrap();
+        assert_eq!(pack.len(), 2);
+        for (kind, body) in &objects {
+            let oid = crate::object::compute_oid(*kind, body);
+            let (got_kind, got_body) = pack.read_object(&oid).unwrap().unwrap();
+            assert_eq!(got_kind, *kind);
+            assert_eq!(got_body, *body);
+        }
     }
 }

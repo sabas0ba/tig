@@ -86,6 +86,17 @@ riscv: ## core を riscv32imac / riscv64gc (bare metal) 向けにビルドする
 	cargo build -p tig-core --all-features --target riscv32imac-unknown-none-elf --release
 	cargo build -p tig-core --all-features --target riscv64gc-unknown-none-elf --release
 
+.PHONY: mcu
+mcu: ## 組み込み例 (staticlib) を thumbv7em / riscv32imac 向けにビルドする
+	cargo build --manifest-path mcu/Cargo.toml --target thumbv7em-none-eabi --release
+	cargo build --manifest-path mcu/Cargo.toml --target riscv32imac-unknown-none-elf --release
+
+.PHONY: qemu
+qemu: ## ベアメタルの例 (mcu/bare) を QEMU で実行して検証する (qemu-system-* が必要)
+	scripts/qemu-bare.sh arm
+	scripts/qemu-bare.sh riscv32
+	scripts/qemu-bare.sh riscv64
+
 .PHONY: size
 size: wasm thumb riscv ## クロスビルドの成果物サイズを表示する
 	@ls -l target/wasm32-unknown-unknown/release/*.rlib \

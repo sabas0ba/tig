@@ -11,4 +11,4 @@ name = "tig"
 path = "src/main.rs"
 
 [dependencies]
-tig-core = { path = "../core", features = ["bundle", "history", "fetch"] }
+tig-core = { path = "../core", features = ["bundle", "history", "fetch", "push", "checkout"] }

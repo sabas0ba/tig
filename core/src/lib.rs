@@ -10,6 +10,9 @@
 //! - `history`: committer date 順の history walk
 //! - `transport-http`: protocol v2 の request 構築と response 解析 (sans-io)
 //! - `fetch`: smart HTTP からの clone 状態機械 (`transport-http` + `bundle`)
+//! - `write`: object (tree / commit) の生成と packfile の書き出し
+//! - `push`: smart HTTP への push 状態機械 (receive-pack、`write` + `transport-http`)
+//! - `checkout`: tree の展開 (filesystem は frontend の責務)
 
 #![cfg_attr(not(test), no_std)]
 
@@ -39,6 +42,17 @@ pub mod protov2;
 
 #[cfg(feature = "fetch")]
 pub mod clone;
+
+#[cfg(feature = "write")]
+pub mod build;
+
+#[cfg(feature = "push")]
+pub mod protov0;
+#[cfg(feature = "push")]
+pub mod push;
+
+#[cfg(feature = "checkout")]
+pub mod checkout;
 
 use alloc::vec::Vec;
 
