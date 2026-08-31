@@ -1,6 +1,6 @@
-# tig
+# tig — tiny git
 
-no_std Rust による git client。ブラウザ (WASM)、組み込み (Cortex-M 等)、通常のホスト環境の全てで同一の core を動かすことを目的とする。
+`tig` は **tiny git** の略。no_std Rust による git client で、ブラウザ (WASM)、組み込み (Cortex-M 等)、通常のホスト環境の全てで同一の core を動かすことを目的とする。
 
 ## 特徴
 

@@ -1,6 +1,6 @@
 [package]
 name = "tig-cli"
-description = "tig-core の動作確認用 CLI (std)"
+description = "tig (tiny git) の動作確認用 CLI (std)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
