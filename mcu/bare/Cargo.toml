@@ -8,7 +8,7 @@
 # workspace から独立させる (末尾の空 [workspace])。
 [package]
 name = "tig-bare-example"
-description = "run tig-core on QEMU bare metal (Cortex-M / RISC-V), no external crates"
+description = "run tig (tiny git) on QEMU bare metal (Cortex-M / RISC-V), no external crates"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"

@@ -1,5 +1,5 @@
 {
-  description = "tig: no_std Rust による WASM / 組み込み向け git client";
+  description = "tig (tiny git): no_std Rust による WASM / 組み込み向け git client";
 
   inputs = {
     # 入力はリビジョンで固定する。ブランチ名による参照は flake.lock が無い環境で

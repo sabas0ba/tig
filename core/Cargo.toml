@@ -1,6 +1,6 @@
 [package]
 name = "tig-core"
-description = "no_std git client core: object / pack / bundle parsing and history walk"
+description = "tig (tiny git) no_std core: object / pack / bundle parsing and history walk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

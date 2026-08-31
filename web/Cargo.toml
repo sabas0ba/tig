@@ -1,6 +1,6 @@
 [package]
 name = "tig-web"
-description = "ブラウザ向け frontend (wasm32-unknown-unknown、C ABI + 手書き JS glue)"
+description = "tig (tiny git) のブラウザ向け frontend (wasm32-unknown-unknown、C ABI + 手書き JS glue)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
