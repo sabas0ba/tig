@@ -55,8 +55,8 @@
 </div>
 
 <h2>Playground</h2>
-<p><a href="playground/">Playground</a> はこのライブラリの web frontend そのもので、wasm 約 90 KB がブラウザ内で動く。git bundle ファイルを開いて refs / 履歴 / commit を閲覧できるほか、smart HTTP の URL から直接 clone して bundle をダウンロードできる。</p>
-<p class="note">ブラウザからの clone は対象サーバが CORS を許可している場合に限る (同一オリジンまたは proxy 経由を推奨)。bundle の閲覧はネットワーク不要で、データはブラウザの外に出ない。</p>
+<p><a href="playground/">Playground</a> はこのライブラリの web frontend そのもので、wasm 約 105 KB がブラウザ内で動く。git bundle ファイルを開いて refs / 履歴 / commit を閲覧できるほか、smart HTTP の URL から直接 clone して bundle をダウンロードでき、開いている bundle を smart HTTP の URL へ push できる。</p>
+<p class="note">ブラウザからの clone / push は対象サーバが CORS を許可している場合に限る (同一オリジンまたは proxy 経由を推奨)。bundle の閲覧はネットワーク不要で、データはブラウザの外に出ない。</p>
 
 <h2>できること</h2>
 <pre>$ tig clone http://host/repo.git --depth 1   # smart HTTP から bundle へ clone
@@ -69,7 +69,7 @@ $ tig cat-file repo.bundle &lt;oid&gt;</pre>
 <table>
   <tr><th>crate</th><th>内容</th></tr>
   <tr><td><code>tig-core</code></td><td>no_std (+ alloc) の本体。SHA-1 / zlib inflate / object / pack / bundle / history walk / protocol v2 をすべて自前実装</td></tr>
-  <tr><td><code>tig-cli</code></td><td>CLI (std)。clone と bundle の閲覧</td></tr>
+  <tr><td><code>tig-cli</code></td><td>CLI (std)。clone / push / checkout と bundle の閲覧</td></tr>
   <tr><td><code>tig-web</code></td><td>ブラウザ frontend。wasm-bindgen 不使用 (C ABI + 手書き JS glue)</td></tr>
 </table>
 

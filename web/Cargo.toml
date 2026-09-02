@@ -10,4 +10,4 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-tig-core = { path = "../core", features = ["bundle", "history", "fetch"] }
+tig-core = { path = "../core", features = ["bundle", "history", "fetch", "push"] }

@@ -52,7 +52,7 @@ CLI の clone は http:// のみ対応する (TLS は依存ゼロでは持たな
 $ make serve   # wasm をビルドして http://127.0.0.1:8000 で配信
 ```
 
-bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone できる (対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
+bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone でき、開いている bundle の refs を smart HTTP の URL へ push できる (いずれも対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
 
 ## GitHub Pages (docpages + playground)
 

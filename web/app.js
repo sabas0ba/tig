@@ -80,6 +80,41 @@ async function cloneOverHttp(url, depth, refName) {
   }
 }
 
+// --- push (receive-pack を fetch() で駆動する) -------------------------------
+
+async function pushOverHttp(url, refName, toName) {
+  if (bundleHandle < 0) throw new Error("open a bundle first");
+  const refBytes = utf8.enc.encode(refName);
+  const toBytes = utf8.enc.encode(toName);
+  const handle = withBytes(refBytes, (rp, rn) =>
+    withBytes(toBytes, (tp, tn) => wasm.tig_push_new(bundleHandle, rp, rn, tp, tn)),
+  );
+  if (handle < 0) throw new Error(lastError());
+  try {
+    for (;;) {
+      const req = takeJson(wasm.tig_push_next_json(handle));
+      if (req.done) break;
+      const body = takeResult(wasm.tig_push_body(handle));
+      const headers = {};
+      if (req.method === "POST") {
+        headers["Content-Type"] = "application/x-git-receive-pack-request";
+      }
+      const resp = await fetch(`${url.replace(/\/+$/, "")}/${req.path}`, {
+        method: req.method,
+        headers,
+        body: req.method === "POST" ? body : undefined,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = new Uint8Array(await resp.arrayBuffer());
+      const rc = withBytes(data, (p, n) => wasm.tig_push_response(handle, p, n));
+      if (rc !== 0) throw new Error(lastError());
+    }
+    return takeJson(wasm.tig_push_finish_json(handle));
+  } finally {
+    wasm.tig_push_close(handle);
+  }
+}
+
 // --- UI ---------------------------------------------------------------------
 
 const el = (id) => document.getElementById(id);
@@ -182,6 +217,27 @@ async function main() {
       openBundle(bytes, `${url} (cloned)`);
     } catch (e) {
       setStatus(`clone failed: ${e.message}`, true);
+    }
+  };
+
+  el("push-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const url = el("push-url").value.trim();
+    const ref = el("push-ref").value.trim();
+    const to = el("push-to").value.trim();
+    setStatus("pushing...");
+    try {
+      const outcome = await pushOverHttp(url, ref, to);
+      if (outcome.up_to_date) {
+        setStatus("push: up to date");
+        return;
+      }
+      const lines = outcome.results.map((r) =>
+        r.error === null ? `ok ${r.ref}` : `ng ${r.ref} (${r.error})`,
+      );
+      setStatus(`push ${outcome.success ? "done" : "rejected"}: ${lines.join(", ")}`, !outcome.success);
+    } catch (e) {
+      setStatus(`push failed: ${e.message}`, true);
     }
   };
 
