@@ -37,7 +37,7 @@ mcu (例)  ─┘      ├─ 常時: oid / sha1 / zlib inflate / object parse
 - Huffman decode は lookup table を持たず、code 長ごとの範囲判定で 1 bit ずつ決定する (数百 byte / 表)
 - 圧縮 (feature `write`) は fixed Huffman のみで、符号表を持たない。LZ77 の一致探索は 3 byte hash から直近 1 候補を引くだけで chain を持たず、作業領域は 16 KiB の hash 表と出力 buffer のみ
 
-既知のトレードオフ: parse 時に全 entry を一度 materialize して oid を確定するため、深い delta chain では同じ base を繰り返し伸長する。必要になった時点で、上限付きの base cache を検討する。
+parse 時に全 entry を一度 materialize して oid を確定するため、delta を解決する間だけ上限付きの base cache (既定 64 KiB、FIFO) を持ち、同じ base の再伸長を避ける。cache は解析後に解放され `Pack` には残らない。`Pack::parse_with_cache(data, 0)` で無効化でき、その場合は解析時間が chain の重複分だけ延びる。解析後の `read_object` は cache を持たず、都度 chain を解決する。
 
 ## 検証戦略
 
@@ -77,7 +77,7 @@ git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に�
 - M1–M3 (実装済み): 環境、primitives、object / pack / bundle、history walk、CLI、差分テスト
 - M4 (実装済み): transport-http (protocol v2 の sans-io state machine)、shallow fetch、CLI clone (git http-backend との end-to-end 差分テスト付き)、web frontend、GitHub Pages (docpages + playground)。ブラウザからの clone は対象サーバの CORS 許可が前提 (同一オリジンまたは proxy 経由を推奨)
 - M5 (実装済み): object 生成と packfile 書き出し (`write`)、receive-pack への push (`push`、git fsck --strict を通る)、tree の展開 (`checkout`)、firmware へ link する組み込み例 (mcu/)
-- M6 (実装中): 送信 pack の fixed Huffman 圧縮 (実装済み)、delta chain の base cache 等の性能改善、web frontend からの push、SHA-256 repository 対応
+- M6 (実装中): 送信 pack の fixed Huffman 圧縮 (実装済み)、delta 解決の上限付き base cache (実装済み)、web frontend からの push、SHA-256 repository 対応
 
 ## toolchain の固定
 

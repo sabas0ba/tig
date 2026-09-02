@@ -14,6 +14,7 @@ use tig_core::bundle::Bundle;
 use tig_core::history::Walk;
 use tig_core::object::{Kind, TreeIter, parse_tag};
 use tig_core::oid::Oid;
+use tig_core::pack::Pack;
 
 /// フィクスチャ repository の起点時刻。commit ごとに +100 秒して順序を一意にする。
 const T0: i64 = 1_700_000_000;
@@ -232,4 +233,40 @@ fn single_commit_bundle() {
     walk.push(bundle.find_ref(b"refs/heads/main").unwrap())
         .unwrap();
     assert_eq!(walk.count(), 1);
+}
+
+/// base cache の有無で解析結果 (oid 集合と object 内容) が変わらないこと。
+/// git の pack-objects が作る delta (ofs delta、chain 付き) を入力にする。
+#[test]
+fn base_cache_does_not_change_results() {
+    let (dir, _) = fixture("cache");
+    let pack = git(
+        &dir,
+        &[
+            "pack-objects",
+            "--revs",
+            "--stdout",
+            "--delta-base-offset",
+            "--all",
+        ],
+    );
+    let with_cache = Pack::parse(&pack).unwrap();
+    let without_cache = Pack::parse_with_cache(&pack, 0).unwrap();
+    let tiny_cache = Pack::parse_with_cache(&pack, 300).unwrap();
+
+    let oids: Vec<_> = with_cache.oids().copied().collect();
+    assert!(oids.len() > 10);
+    assert_eq!(without_cache.oids().copied().collect::<Vec<_>>(), oids);
+    assert_eq!(tiny_cache.oids().copied().collect::<Vec<_>>(), oids);
+    for oid in &oids {
+        let expected = git(&dir, &["cat-file", "-p", &oid.to_string()]);
+        let (kind, body) = with_cache.read_object(oid).unwrap().unwrap();
+        if kind == Kind::Blob {
+            assert_eq!(body, expected, "oid={oid}");
+        }
+        assert_eq!(
+            without_cache.read_object(oid).unwrap().unwrap(),
+            (kind, body)
+        );
+    }
 }
