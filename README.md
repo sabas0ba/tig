@@ -28,7 +28,7 @@ tig-core の feature:
 | `history` | committer date 順の history walk |
 | `transport-http` | protocol v2 の request 構築と response 解析 (sans-io) |
 | `fetch` | smart HTTP からの clone 状態機械 (`transport-http` + `bundle`) |
-| `write` | object (tree / commit) の生成と packfile の書き出し |
+| `write` | object (tree / commit) の生成と packfile の書き出し (zlib は fixed Huffman 圧縮) |
 | `push` | smart HTTP への push 状態機械 (receive-pack、`write` を内包) |
 | `checkout` | tree の展開 (filesystem は frontend の責務) |
 
@@ -52,7 +52,7 @@ CLI の clone は http:// のみ対応する (TLS は依存ゼロでは持たな
 $ make serve   # wasm をビルドして http://127.0.0.1:8000 で配信
 ```
 
-bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone できる (対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
+bundle ファイルを開いて refs / log / commit を閲覧できるほか、smart HTTP の URL から直接 clone でき、開いている bundle の refs を smart HTTP の URL へ push できる (いずれも対象サーバが CORS を許可している場合。同一オリジンまたは proxy 経由を推奨)。
 
 ## GitHub Pages (docpages + playground)
 

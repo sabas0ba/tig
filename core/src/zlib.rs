@@ -54,23 +54,51 @@ pub fn inflate_zlib(input: &[u8], size_hint: Option<usize>) -> Result<Inflated> 
     })
 }
 
+/// zlib stream を生成する (feature `write`)。
+///
+/// DEFLATE の fixed Huffman block (RFC 1951 3.2.6) 1 つに LZ77 の一致を
+/// 符号化する。dynamic Huffman は持たない (表の構築と符号化で実装が倍になる
+/// 割に、git object 程度の大きさでは利得が小さい)。圧縮結果が stored block
+/// より大きくなる入力 (乱数に近い blob 等) では stored block を返す。
+///
+/// 一致探索は 3 byte の hash から直近の位置 1 つを引く単純なもので、chain を
+/// 持たない。作業領域は hash 表 (`HASH_SIZE` entry の u32) と出力のみ。
+#[cfg(feature = "write")]
+pub fn deflate_zlib(data: &[u8]) -> Vec<u8> {
+    let stored_len = 2 + data.len() + data.len().div_ceil(STORED_BLOCK).max(1) * 5 + 4;
+    let mut out = Vec::with_capacity(stored_len.min(2 + data.len() / 2 + 64));
+    out.extend_from_slice(&[0x78, 0x01]); // CMF/FLG (32 KiB window、check bits 調整済み)
+
+    let mut bw = BitWriter::new(&mut out);
+    bw.bits(1, 1); // BFINAL
+    bw.bits(1, 2); // BTYPE = 01 (fixed Huffman)
+    deflate_fixed_block(data, &mut bw);
+    bw.code(FIXED_END_CODE, FIXED_END_LEN);
+    bw.flush();
+
+    if out.len() + 4 >= stored_len {
+        return deflate_zlib_stored(data);
+    }
+    out.extend_from_slice(&adler32(data).to_be_bytes());
+    out
+}
+
 /// zlib stream を生成する (DEFLATE の stored block のみ、feature `write`)。
 ///
 /// 圧縮は行わない。git は伸長後の内容だけを検証するため、無圧縮の zlib stream
-/// でも相互運用できる。圧縮率より実装の小ささと検証容易性を優先した選択で、
-/// 転送量が問題になる場合は fixed Huffman の追加を検討する (docs/design.md)。
+/// でも相互運用できる。[`deflate_zlib`] が圧縮の効かない入力で用いるほか、
+/// 圧縮器を検証する際の参照にもなる。
 #[cfg(feature = "write")]
 pub fn deflate_zlib_stored(data: &[u8]) -> Vec<u8> {
     // stored block は「1 byte header + LE の len / !len + データ」。
-    const BLOCK: usize = 65_535;
-    let blocks = data.len().div_ceil(BLOCK).max(1);
+    let blocks = data.len().div_ceil(STORED_BLOCK).max(1);
     let mut out = Vec::with_capacity(2 + data.len() + blocks * 5 + 4);
-    out.extend_from_slice(&[0x78, 0x01]); // CMF/FLG (32 KiB window、check bits 調整済み)
+    out.extend_from_slice(&[0x78, 0x01]);
 
     if data.is_empty() {
         out.extend_from_slice(&[0x01, 0x00, 0x00, 0xff, 0xff]);
     } else {
-        let mut chunks = data.chunks(BLOCK).peekable();
+        let mut chunks = data.chunks(STORED_BLOCK).peekable();
         while let Some(chunk) = chunks.next() {
             out.push(if chunks.peek().is_none() { 0x01 } else { 0x00 });
             let len = chunk.len() as u16;
@@ -82,6 +110,165 @@ pub fn deflate_zlib_stored(data: &[u8]) -> Vec<u8> {
 
     out.extend_from_slice(&adler32(data).to_be_bytes());
     out
+}
+
+/// stored block 1 つに入る最大 byte 数。
+#[cfg(feature = "write")]
+const STORED_BLOCK: usize = 65_535;
+
+// --- DEFLATE 圧縮 (fixed Huffman + LZ77) --------------------------------------
+
+/// end-of-block (symbol 256) の fixed code。7 bit の 0。
+#[cfg(feature = "write")]
+const FIXED_END_CODE: u32 = 0;
+#[cfg(feature = "write")]
+const FIXED_END_LEN: u32 = 7;
+
+/// 一致探索の hash 表の entry 数 (2 の冪)。u32 で 16 KiB。
+#[cfg(feature = "write")]
+const HASH_BITS: u32 = 12;
+#[cfg(feature = "write")]
+const HASH_SIZE: usize = 1 << HASH_BITS;
+/// back reference の最大距離 (RFC 1951 の window)。
+#[cfg(feature = "write")]
+const MAX_DIST: usize = 32_768;
+/// 一致の最小・最大長 (RFC 1951)。
+#[cfg(feature = "write")]
+const MIN_MATCH: usize = 3;
+#[cfg(feature = "write")]
+const MAX_MATCH: usize = 258;
+
+#[cfg(feature = "write")]
+struct BitWriter<'a> {
+    out: &'a mut Vec<u8>,
+    bit_buf: u64,
+    bit_cnt: u32,
+}
+
+#[cfg(feature = "write")]
+impl<'a> BitWriter<'a> {
+    fn new(out: &'a mut Vec<u8>) -> Self {
+        Self {
+            out,
+            bit_buf: 0,
+            bit_cnt: 0,
+        }
+    }
+
+    /// `n` bit を LSB から順に書く (header / extra bits 用)。n <= 32。
+    fn bits(&mut self, value: u32, n: u32) {
+        self.bit_buf |= u64::from(value) << self.bit_cnt;
+        self.bit_cnt += n;
+        while self.bit_cnt >= 8 {
+            self.out.push(self.bit_buf as u8);
+            self.bit_buf >>= 8;
+            self.bit_cnt -= 8;
+        }
+    }
+
+    /// Huffman code を書く。code は MSB から順に並ぶため bit 順を反転する。
+    fn code(&mut self, code: u32, len: u32) {
+        let reversed = code.reverse_bits() >> (32 - len);
+        self.bits(reversed, len);
+    }
+
+    /// 端数 bit を 0 で埋めて byte 境界に揃える。
+    fn flush(&mut self) {
+        if self.bit_cnt > 0 {
+            self.out.push(self.bit_buf as u8);
+            self.bit_buf = 0;
+            self.bit_cnt = 0;
+        }
+    }
+
+    /// literal / length symbol を fixed Huffman code で書く (RFC 1951 3.2.6)。
+    fn fixed_lit(&mut self, sym: u16) {
+        let (code, len) = match sym {
+            0..=143 => (0x30 + u32::from(sym), 8),
+            144..=255 => (0x190 + u32::from(sym - 144), 9),
+            256..=279 => (u32::from(sym - 256), 7),
+            _ => (0xc0 + u32::from(sym - 280), 8),
+        };
+        self.code(code, len);
+    }
+
+    /// 一致 (長さ・距離) を symbol と extra bits に分けて書く。
+    fn fixed_match(&mut self, len: usize, dist: usize) {
+        let li = LEN_BASE
+            .iter()
+            .rposition(|&b| usize::from(b) <= len)
+            .unwrap();
+        self.fixed_lit(257 + li as u16);
+        self.bits(
+            (len - usize::from(LEN_BASE[li])) as u32,
+            u32::from(LEN_EXTRA[li]),
+        );
+
+        let di = DIST_BASE
+            .iter()
+            .rposition(|&b| usize::from(b) <= dist)
+            .unwrap();
+        // distance code は 5 bit 固定長。
+        self.code(di as u32, 5);
+        self.bits(
+            (dist - usize::from(DIST_BASE[di])) as u32,
+            u32::from(DIST_EXTRA[di]),
+        );
+    }
+}
+
+/// 3 byte の hash。乗算 hash の上位 `HASH_BITS` bit を取る。
+#[cfg(feature = "write")]
+fn hash3(data: &[u8], pos: usize) -> usize {
+    let v = u32::from(data[pos]) | u32::from(data[pos + 1]) << 8 | u32::from(data[pos + 2]) << 16;
+    (v.wrapping_mul(0x9E37_79B1) >> (32 - HASH_BITS)) as usize
+}
+
+/// `data` を LZ77 の literal / 一致列に分解し、fixed Huffman で `bw` に書く。
+/// end-of-block は書かない。
+#[cfg(feature = "write")]
+fn deflate_fixed_block(data: &[u8], bw: &mut BitWriter<'_>) {
+    // head[h] = hash h を持つ直近の位置 (+1、0 は未登録)。
+    let mut head = alloc::vec![0u32; HASH_SIZE];
+    let mut pos = 0;
+    while pos < data.len() {
+        let remaining = data.len() - pos;
+        let mut best = 0;
+        let mut best_dist = 0;
+        if remaining >= MIN_MATCH {
+            let h = hash3(data, pos);
+            let cand = head[h] as usize;
+            head[h] = (pos + 1) as u32;
+            if cand > 0 {
+                let cand = cand - 1;
+                let dist = pos - cand;
+                if dist <= MAX_DIST {
+                    let limit = remaining.min(MAX_MATCH);
+                    let len = (0..limit)
+                        .take_while(|&k| data[cand + k] == data[pos + k])
+                        .count();
+                    if len >= MIN_MATCH {
+                        best = len;
+                        best_dist = dist;
+                    }
+                }
+            }
+        }
+
+        if best == 0 {
+            bw.fixed_lit(u16::from(data[pos]));
+            pos += 1;
+        } else {
+            bw.fixed_match(best, best_dist);
+            // 一致の内側も hash 表へ登録し、以降の探索候補にする。
+            for p in pos + 1..pos + best {
+                if data.len() - p >= MIN_MATCH {
+                    head[hash3(data, p)] = (p + 1) as u32;
+                }
+            }
+            pos += best;
+        }
+    }
 }
 
 /// adler32 (RFC 1950)。
@@ -449,6 +636,68 @@ mod tests {
 
     // 圧縮側の出力を自前の伸長器で往復させる。伸長器は git の実データとの
     // 差分テストで検証済みのため、往復一致が相互運用の根拠になる。
+    #[cfg(feature = "write")]
+    #[test]
+    fn fixed_deflate_roundtrip() {
+        // 疑似乱数 (LCG) で圧縮の効かない入力も作る。
+        let mut seed: u32 = 12345;
+        let mut rand = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8
+        };
+        let cases: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            vec![0x41],
+            b"hello".to_vec(),
+            vec![0u8; 1000],                                 // 距離 1 の長い一致
+            (0..=255u8).collect(),                           // 9 bit literal を含む
+            (0..40_000).map(|i| (i % 7) as u8).collect(),    // 周期の短い繰り返し
+            (0..100_000).map(|i| (i % 251) as u8).collect(), // 32 KiB を超える距離
+            (0..70_000).map(|_| rand()).collect(),           // 圧縮不能 → stored
+            b"tree 1234\nparent abcd\nauthor A <a@example.com> 1 +0000\n\nmsg\n".repeat(50),
+        ];
+        for (i, data) in cases.iter().enumerate() {
+            let compressed = deflate_zlib(data);
+            let inflated = inflate_zlib(&compressed, Some(data.len())).unwrap();
+            assert_eq!(&inflated.data, data, "case {i}");
+            assert_eq!(inflated.consumed, compressed.len(), "case {i}");
+            assert!(
+                compressed.len() <= deflate_zlib_stored(data).len(),
+                "case {i}: 圧縮結果が stored より大きい"
+            );
+        }
+        // 繰り返しの多い入力は実際に縮むこと。
+        let text = cases.last().unwrap();
+        assert!(deflate_zlib(text).len() < text.len() / 10);
+    }
+
+    #[cfg(feature = "write")]
+    #[test]
+    fn fixed_deflate_boundary_distances() {
+        // 一致距離が window 境界 (32768) の前後にある場合。
+        for gap in [MAX_DIST - 1, MAX_DIST, MAX_DIST + 1] {
+            let mut data = b"ABCDEFGHIJKLMNOP".to_vec();
+            data.extend((0..gap - 16).map(|i| (i % 13) as u8 + b'a'));
+            data.extend_from_slice(b"ABCDEFGHIJKLMNOP");
+            let compressed = deflate_zlib(&data);
+            let inflated = inflate_zlib(&compressed, None).unwrap();
+            assert_eq!(inflated.data, data, "gap={gap}");
+        }
+        // 最大長 258 を超える一致の分割。
+        let data = vec![b'x'; 258 * 3 + 7];
+        let inflated = inflate_zlib(&deflate_zlib(&data), None).unwrap();
+        assert_eq!(inflated.data, data);
+    }
+
+    #[cfg(feature = "write")]
+    #[test]
+    fn fixed_deflate_matches_reference_stream() {
+        // 参照実装 (Python zlib, level 6) は "hello" を fixed block 1 つで
+        // 符号化する。literal 列のみなら符号は一意なので、zlib header の FLG
+        // (圧縮レベルの目安、伸長には無関係) を除いて byte 単位で一致する。
+        assert_eq!(deflate_zlib(b"hello")[2..], HELLO_FIXED[2..]);
+    }
+
     #[cfg(feature = "write")]
     #[test]
     fn stored_deflate_roundtrip() {

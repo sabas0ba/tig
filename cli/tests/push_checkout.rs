@@ -1,8 +1,8 @@
 //! push と checkout の実物の git との差分テスト。
 //!
 //! push: git http-backend (receive-pack 有効) へ tig で push し、remote 側を
-//! git 自身 (rev-parse / fsck / rev-list) で検証する。pack writer と無圧縮
-//! zlib stream を git が受理することの確認を兼ねる。
+//! git 自身 (rev-parse / fsck / rev-list) で検証する。pack writer と自前の
+//! zlib 圧縮 (fixed Huffman) を git が受理することの確認を兼ねる。
 //! checkout: tig の展開結果を `git checkout` の worktree と比較する。
 
 mod common;
@@ -50,7 +50,7 @@ fn push_to_empty_repository() {
     run_tig(&["push", &url, bundle.to_str().unwrap()]);
 
     let dst = root.join("dst.git");
-    // ref が一致し、object が壊れていないこと (無圧縮 zlib と pack writer の検証)。
+    // ref が一致し、object が壊れていないこと (zlib 圧縮と pack writer の検証)。
     for refname in ["refs/heads/main", "refs/tags/v1"] {
         assert_eq!(
             git_lines(&dst, &["rev-parse", refname]),

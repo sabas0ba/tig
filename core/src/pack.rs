@@ -35,8 +35,62 @@ const OBJ_REF_DELTA: u8 = 7;
 /// delta chain 長の上限。循環参照 (破損データ) の検出を兼ねる。
 const MAX_DELTA_DEPTH: usize = 4096;
 
+/// [`Pack::parse`] が delta 解決の途中結果を保持する一時 cache の既定予算 (byte)。
+/// 解析中のみ確保し、`Pack` には残らない。
+pub const DEFAULT_BASE_CACHE_BYTES: usize = 64 * 1024;
+/// base cache の entry 数の上限 (線形探索で済む範囲に抑える)。
+const BASE_CACHE_ENTRIES: usize = 64;
+
+/// delta 解決の途中結果 (entry offset → object) の上限付き cache。
+///
+/// pass 2 では同じ base を持つ delta が連続しがちで、cache が無いと base を
+/// その都度伸長し直す。予算を超えたら古いものから捨てる (FIFO)。予算より
+/// 大きい object は保持しない。
+struct BaseCache {
+    entries: Vec<(u32, Kind, Vec<u8>)>,
+    bytes: usize,
+    budget: usize,
+}
+
+impl BaseCache {
+    fn new(budget: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            bytes: 0,
+            budget,
+        }
+    }
+
+    fn get(&self, offset: usize) -> Option<(Kind, &[u8])> {
+        self.entries
+            .iter()
+            .find(|(o, _, _)| *o as usize == offset)
+            .map(|(_, kind, body)| (*kind, body.as_slice()))
+    }
+
+    fn insert(&mut self, offset: usize, kind: Kind, body: &[u8]) {
+        if body.len() > self.budget || self.get(offset).is_some() {
+            return;
+        }
+        while !self.entries.is_empty()
+            && (self.bytes + body.len() > self.budget || self.entries.len() >= BASE_CACHE_ENTRIES)
+        {
+            let (_, _, evicted) = self.entries.remove(0);
+            self.bytes -= evicted.len();
+        }
+        self.bytes += body.len();
+        self.entries.push((offset as u32, kind, body.to_vec()));
+    }
+}
+
 impl<'a> Pack<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
+        Self::parse_with_cache(data, DEFAULT_BASE_CACHE_BYTES)
+    }
+
+    /// [`Pack::parse`] の base cache 予算を指定する版。`0` で cache を無効化する
+    /// (メモリの厳しい環境向け。解析時間は delta chain の重複分だけ延びる)。
+    pub fn parse_with_cache(data: &'a [u8], cache_bytes: usize) -> Result<Self> {
         if data.len() < 12 + 20 {
             return Err(Error::UnexpectedEof);
         }
@@ -90,11 +144,18 @@ impl<'a> Pack<'a> {
         // pass 2: delta entry を base の解決可能なものから順に materialize する。
         // ofs delta の base は常に前方にあるが、ref delta は任意の位置を指せるため、
         // 進展が無くなるまで繰り返す (通常は 1 回で完了する)。
+        let mut cache = BaseCache::new(cache_bytes);
         while !pending.is_empty() {
             let mut unresolved = Vec::new();
             let mut resolved_any = false;
             for &entry_offset in &pending {
-                match materialize(data, content_end, &index, entry_offset as usize) {
+                match materialize(
+                    data,
+                    content_end,
+                    &index,
+                    entry_offset as usize,
+                    Some(&mut cache),
+                ) {
                     Ok((kind, body)) => {
                         index.push((crate::object::compute_oid(kind, &body), entry_offset));
                         resolved_any = true;
@@ -139,9 +200,14 @@ impl<'a> Pack<'a> {
     pub fn read_object(&self, oid: &Oid) -> Result<Option<(Kind, Vec<u8>)>> {
         match lookup(&self.index, oid) {
             None => Ok(None),
-            Some(offset) => {
-                materialize(self.data, self.content_end, &self.index, offset as usize).map(Some)
-            }
+            Some(offset) => materialize(
+                self.data,
+                self.content_end,
+                &self.index,
+                offset as usize,
+                None,
+            )
+            .map(Some),
         }
     }
 }
@@ -263,20 +329,27 @@ fn base_ref(
 /// offset の entry を delta chain を解決しつつ復元する。
 ///
 /// 再帰を使わず、chain を配列に積んでから base 側から適用する。組み込みの
-/// 小さい stack でも chain 長に依存せず動作する。
+/// 小さい stack でも chain 長に依存せず動作する。`cache` があれば chain の
+/// 途中で cache 済みの object に当たった時点で打ち切り、復元した各段を
+/// cache へ入れる。
 fn materialize(
     data: &[u8],
     content_end: usize,
     index: &[(Oid, u32)],
     offset: usize,
+    mut cache: Option<&mut BaseCache>,
 ) -> Result<(Kind, Vec<u8>)> {
-    // chain: 適用すべき delta entry の zlib 開始位置と伸長後サイズ (外側から順)。
-    let mut chain: Vec<(usize, usize)> = Vec::new();
+    // chain: 適用すべき delta entry の (entry offset, zlib 開始位置, 伸長後サイズ)
+    // (外側から順)。
+    let mut chain: Vec<(usize, usize, usize)> = Vec::new();
     let mut cur = offset;
 
     let (kind, mut body) = loop {
         if chain.len() > MAX_DELTA_DEPTH {
             return Err(Error::Corrupt("delta chain too deep"));
+        }
+        if let Some((kind, body)) = cache.as_deref().and_then(|c| c.get(cur)) {
+            break (kind, body.to_vec());
         }
         let (code, size, pos) = entry_header(data, cur, content_end)?;
         let (base, zlib_start) = base_ref(data, code, pos, cur, content_end)?;
@@ -286,33 +359,40 @@ fn materialize(
                 if inflated.data.len() != size {
                     return Err(Error::Corrupt("entry size"));
                 }
-                break (kind_of(code)?, inflated.data);
+                let kind = kind_of(code)?;
+                if let Some(c) = cache.as_deref_mut() {
+                    c.insert(cur, kind, &inflated.data);
+                }
+                break (kind, inflated.data);
             }
             BaseRef::Offset(base_offset) => {
-                chain.push((zlib_start, size));
+                chain.push((cur, zlib_start, size));
                 cur = base_offset;
             }
             BaseRef::Oid(oid) => {
-                chain.push((zlib_start, size));
+                chain.push((cur, zlib_start, size));
                 cur = lookup(index, &oid).ok_or(Error::MissingBase)? as usize;
             }
         }
     };
 
-    for &(zlib_start, size) in chain.iter().rev() {
+    for &(entry_offset, zlib_start, size) in chain.iter().rev() {
         let inflated = zlib::inflate_zlib(&data[zlib_start..content_end], Some(size))?;
         if inflated.data.len() != size {
             return Err(Error::Corrupt("entry size"));
         }
         body = delta::apply(&body, &inflated.data)?;
+        if let Some(c) = cache.as_deref_mut() {
+            c.insert(entry_offset, kind, &body);
+        }
     }
     Ok((kind, body))
 }
 
 /// object の列から packfile (version 2、非 delta) を生成する。
 ///
-/// entry の zlib stream は無圧縮 (stored block)。push の転送量よりも実装の
-/// 小ささを優先している (docs/design.md)。
+/// entry の zlib stream は fixed Huffman で圧縮する (`zlib::deflate_zlib`)。
+/// delta は生成しない (docs/design.md)。
 #[cfg(feature = "write")]
 pub fn write_pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -336,7 +416,7 @@ pub fn write_pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
             size >>= 7;
         }
         out.push(byte);
-        out.extend_from_slice(&zlib::deflate_zlib_stored(body));
+        out.extend_from_slice(&zlib::deflate_zlib(body));
     }
 
     let digest = sha1::digest(&out);
