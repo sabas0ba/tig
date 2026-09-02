@@ -35,6 +35,7 @@ mcu (例)  ─┘      ├─ 常時: oid / sha1 / zlib inflate / object parse
 - object の内容は保持せず、読み出しのたびに伸長し直す (メモリを CPU で贖う)。delta chain の解決も再帰を使わず、chain を配列に積んでから base 側から適用する
 - inflate は 32 KiB の独立した window を持たない。git object は常に全体を伸長するため、出力バッファ自身を back reference の参照先とする
 - Huffman decode は lookup table を持たず、code 長ごとの範囲判定で 1 bit ずつ決定する (数百 byte / 表)
+- 圧縮 (feature `write`) は fixed Huffman のみで、符号表を持たない。LZ77 の一致探索は 3 byte hash から直近 1 候補を引くだけで chain を持たず、作業領域は 16 KiB の hash 表と出力 buffer のみ
 
 既知のトレードオフ: parse 時に全 entry を一度 materialize して oid を確定するため、深い delta chain では同じ base を繰り返し伸長する。必要になった時点で、上限付きの base cache を検討する。
 
@@ -67,7 +68,7 @@ git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に�
 - walk の順序は `git log --date-order` と同一 (topology 制約 + committer date 順。date 同点の順序のみ oid で決定的にしており git の投入順とは異なりうる)。default の `git log` (generation number を使う topo 順) は対象外
 - 存在しない parent (bundle の prerequisite / shallow) は履歴の境界として扱う
 - fetch は protocol v2 のみ対応 (v0/v1 の server は明示的にエラー)。negotiation なしの clone 相当 (常に done) で、深さは `deepen` のみ
-- push は receive-pack (protocol v0) を使う (push は protocol v2 に定義が無いため)。report-status を必須とし、送る packfile は非 delta かつ無圧縮 zlib (stored block)。圧縮率より実装の小ささを優先しており、転送量が問題になる場合は fixed Huffman の追加を検討する
+- push は receive-pack (protocol v0) を使う (push は protocol v2 に定義が無いため)。report-status を必須とし、送る packfile は非 delta。各 object の zlib stream は fixed Huffman (RFC 1951 3.2.6) + LZ77 で圧縮する。dynamic Huffman と delta 生成は持たず、圧縮率より実装の小ささを優先する。圧縮が効かない object (乱数に近い blob 等) は stored block に落とす
 - 生成する object (tree / commit) は git の plumbing (mktree / commit-tree) と oid が一致することを差分テストで検証している。tree の並びは正規順 (directory は名前に '/' を補って比較)
 - shallow clone の bundle 表現: bundle 形式には shallow graft が無いため、「pack に含まれない親を prerequisite に記録する」までを行う。複数の tip を depth 付きで clone した場合、tip 同士が pack 内で親子だと walk はそこを辿る (git の shallow clone は graft で打ち切る点が異なる)。また prerequisite 付き bundle は形式の定義上 incremental bundle であり、git はその commit を持つ repository でしか verify / clone できない。tig 自身の閲覧には支障ない。prerequisite を省略する表現は「宣言なしに object が欠けた bundle」となり悪化するため採らない
 
@@ -76,7 +77,7 @@ git が生成する pack は fixed/dynamic Huffman、ofs delta 等を自然に�
 - M1–M3 (実装済み): 環境、primitives、object / pack / bundle、history walk、CLI、差分テスト
 - M4 (実装済み): transport-http (protocol v2 の sans-io state machine)、shallow fetch、CLI clone (git http-backend との end-to-end 差分テスト付き)、web frontend、GitHub Pages (docpages + playground)。ブラウザからの clone は対象サーバの CORS 許可が前提 (同一オリジンまたは proxy 経由を推奨)
 - M5 (実装済み): object 生成と packfile 書き出し (`write`)、receive-pack への push (`push`、git fsck --strict を通る)、tree の展開 (`checkout`)、firmware へ link する組み込み例 (mcu/)
-- M6 以降 (候補): 送信 pack の fixed Huffman 圧縮、delta chain の base cache 等の性能改善、web frontend からの push、SHA-256 repository 対応
+- M6 (実装中): 送信 pack の fixed Huffman 圧縮 (実装済み)、delta chain の base cache 等の性能改善、web frontend からの push、SHA-256 repository 対応
 
 ## toolchain の固定
 

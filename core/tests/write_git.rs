@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 use tig_core::build;
 use tig_core::object::{Kind, Sig, compute_oid};
 use tig_core::oid::Oid;
+use tig_core::pack::write_pack;
 
 fn repo(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tig-writetest-{}-{name}", std::process::id()));
@@ -143,4 +144,82 @@ fn commit_oid_matches_git_commit_tree() {
     let parent = Oid::from_hex(root_hex.as_bytes()).unwrap();
     let body = build::commit(tree, &[parent], &author, &committer, b"second\n").unwrap();
     assert_eq!(compute_oid(Kind::Commit, &body).to_string(), child_hex);
+}
+
+/// pack writer の出力 (fixed Huffman 圧縮) を git が受理し、各 object を
+/// 元の内容どおりに復元すること。圧縮の効く blob、効かない blob (stored に
+/// 落ちる)、9 bit literal を含む blob、空 blob を混ぜる。
+#[test]
+fn written_pack_is_accepted_by_git_index_pack() {
+    let dir = repo("pack");
+
+    let mut seed: u32 = 99;
+    let mut rand = || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 24) as u8
+    };
+    let text = b"fn main() {\n    println!(\"hello\");\n}\n".repeat(400);
+    let noise: Vec<u8> = (0..20_000).map(|_| rand()).collect();
+    let high: Vec<u8> = (0..4096).map(|i| 0x80 | (i % 128) as u8).collect();
+    let empty = Vec::new();
+    let blobs: Vec<&[u8]> = vec![&text, &noise, &high, &empty];
+
+    let names: Vec<String> = (0..blobs.len()).map(|i| format!("f{i}")).collect();
+    let entries: Vec<build::TreeEntry<'_>> = blobs
+        .iter()
+        .zip(&names)
+        .map(|(body, name)| build::TreeEntry {
+            mode: b"100644",
+            name: name.as_bytes(),
+            oid: compute_oid(Kind::Blob, body),
+        })
+        .collect();
+    let tree = build::tree(&entries).unwrap();
+    let sig = Sig {
+        name: b"Tester",
+        email: b"tester@example.com",
+        time: 1_700_000_100,
+        tz: b"+0900",
+    };
+    let commit =
+        build::commit(compute_oid(Kind::Tree, &tree), &[], &sig, &sig, b"packed\n").unwrap();
+
+    let mut objects: Vec<(Kind, &[u8])> = vec![(Kind::Commit, &commit), (Kind::Tree, &tree)];
+    objects.extend(blobs.iter().map(|b| (Kind::Blob, *b)));
+    let pack = write_pack(&objects);
+
+    // --stdin で object database へ取り込む。--strict は object の整合性
+    // (fsck 相当) も検査する。
+    git(&dir, &["index-pack", "--stdin", "--strict"], &pack);
+
+    for (kind, body) in &objects {
+        let oid = compute_oid(*kind, body);
+        let out = Command::new("git")
+            .args([
+                "-C",
+                dir.to_str().unwrap(),
+                "cat-file",
+                kind_name(*kind),
+                &oid.to_string(),
+            ])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "cat-file {oid}");
+        assert_eq!(&out.stdout, body, "object {oid} の内容");
+    }
+    let count = git(
+        &dir,
+        &["cat-file", "--batch-all-objects", "--batch-check"],
+        b"",
+    );
+    assert_eq!(count.lines().count(), objects.len());
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Commit => "commit",
+        Kind::Tree => "tree",
+        Kind::Blob => "blob",
+        Kind::Tag => "tag",
+    }
 }

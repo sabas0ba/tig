@@ -311,8 +311,8 @@ fn materialize(
 
 /// object の列から packfile (version 2、非 delta) を生成する。
 ///
-/// entry の zlib stream は無圧縮 (stored block)。push の転送量よりも実装の
-/// 小ささを優先している (docs/design.md)。
+/// entry の zlib stream は fixed Huffman で圧縮する (`zlib::deflate_zlib`)。
+/// delta は生成しない (docs/design.md)。
 #[cfg(feature = "write")]
 pub fn write_pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -336,7 +336,7 @@ pub fn write_pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
             size >>= 7;
         }
         out.push(byte);
-        out.extend_from_slice(&zlib::deflate_zlib_stored(body));
+        out.extend_from_slice(&zlib::deflate_zlib(body));
     }
 
     let digest = sha1::digest(&out);

@@ -28,7 +28,7 @@ tig-core の feature:
 | `history` | committer date 順の history walk |
 | `transport-http` | protocol v2 の request 構築と response 解析 (sans-io) |
 | `fetch` | smart HTTP からの clone 状態機械 (`transport-http` + `bundle`) |
-| `write` | object (tree / commit) の生成と packfile の書き出し |
+| `write` | object (tree / commit) の生成と packfile の書き出し (zlib は fixed Huffman 圧縮) |
 | `push` | smart HTTP への push 状態機械 (receive-pack、`write` を内包) |
 | `checkout` | tree の展開 (filesystem は frontend の責務) |
 
