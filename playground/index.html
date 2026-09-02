@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tig — tiny git</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e;
+    --line: #d1d9e0; --accent: #0969da; --panel: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0;
+      --line: #30363d; --accent: #4493f8; --panel: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 1.1rem; }
+  #status { color: var(--muted); }
+  #status.error { color: #d1242f; }
+  .inputs {
+    display: flex; gap: 1.5rem; flex-wrap: wrap;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .inputs form, .inputs label { display: flex; gap: 0.5rem; align-items: center; }
+  input, button {
+    font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.5rem;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  main { display: flex; min-height: 0; }
+  nav { width: 16rem; border-right: 1px solid var(--line); padding: 0.5rem 0; }
+  nav h2, section h2 { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 1rem; }
+  #refs { list-style: none; margin: 0; padding: 0; }
+  #refs li {
+    padding: 0.25rem 1rem; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-monospace, monospace; font-size: 0.85rem;
+  }
+  #refs li:hover { color: var(--accent); }
+  section { flex: 1; min-width: 0; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  td {
+    padding: 0.25rem 1rem 0.25rem 0; border-top: 1px solid var(--line);
+    font-family: ui-monospace, monospace; font-size: 0.85rem; white-space: nowrap;
+  }
+  td:first-child { padding-left: 1rem; color: var(--accent); }
+  td:last-child { white-space: normal; font-family: inherit; font-size: inherit; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--panel); }
+  #detail {
+    margin: 0 1rem 1rem; padding: 0.75rem; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px;
+    font-family: ui-monospace, monospace; font-size: 0.85rem;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #detail:empty { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>tig — tiny git</h1>
+  <span id="status">loading wasm...</span>
+  <button id="download" hidden>download .bundle</button>
+</header>
+<div class="inputs">
+  <label>open bundle: <input type="file" id="file" accept=".bundle"></label>
+  <form id="clone-form">
+    <input id="url" type="text" placeholder="http(s)://host/repo.git" size="32" required>
+    <input id="depth" type="number" placeholder="depth" min="0" size="5">
+    <input id="ref" type="text" placeholder="ref (optional)" size="18">
+    <button type="submit">clone</button>
+  </form>
+  <form id="push-form">
+    <input id="push-url" type="text" placeholder="push to http(s)://host/repo.git" size="32" required>
+    <input id="push-ref" type="text" placeholder="ref (optional)" size="18">
+    <input id="push-to" type="text" placeholder="to (optional)" size="18">
+    <button type="submit">push</button>
+  </form>
+</div>
+<main>
+  <nav>
+    <h2>refs</h2>
+    <ul id="refs"></ul>
+  </nav>
+  <section>
+    <h2 id="log-title">log</h2>
+    <table><tbody id="log"></tbody></table>
+    <h2 id="detail-title"></h2>
+    <pre id="detail"></pre>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

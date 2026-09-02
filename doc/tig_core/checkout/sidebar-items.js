@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["EntryKind"],"fn":["walk"],"type":["Visit"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["INFO_REFS_PATH","PROTOCOL_HEADER","REQUEST_CONTENT_TYPE","UPLOAD_PACK_PATH"],"enum":["Request"],"struct":["Clone","CloneOptions","CloneOutcome"]};

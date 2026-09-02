@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Kind"],"fn":["compute_oid","parse_commit","parse_tag"],"struct":["Commit","Sig","Tag","TreeEntry","TreeIter"]};

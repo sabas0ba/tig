@@ -1,0 +1,2 @@
+createSrcSidebar('[["tig_core",["",[],["build.rs","bundle.rs","checkout.rs","clone.rs","delta.rs","err.rs","history.rs","lib.rs","object.rs","oid.rs","pack.rs","pkt.rs","protov0.rs","protov2.rs","push.rs","sha1.rs","zlib.rs"]]]]');
+//{"start":19,"fragment_lengths":[208]}

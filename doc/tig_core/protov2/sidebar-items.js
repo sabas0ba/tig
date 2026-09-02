@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["fetch_request","ls_refs_request","parse_advertisement","parse_fetch_response","parse_ls_refs"],"struct":["Advertisement","FetchResponse","RefEntry"]};
